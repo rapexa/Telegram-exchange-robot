@@ -1,0 +1,10 @@
+mysql:
+  user: "telegram_exchange_user"
+  password: "mgstudio884"
+  host: "localhost"
+  port: 3306
+  dbname: "telegram_exchange_bot"
+
+telegram:
+  token: "YOUR_TELEGRAM_BOT_TOKEN"
+  debug: true
