@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"sync"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -138,8 +139,21 @@ func handleStart(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 		return
 	}
 
-	// Already registered
+	// User is already registered, show their information and main menu
+	showUserInfo(bot, msg.Chat.ID, user)
 	showMainMenu(bot, msg.Chat.ID)
+}
+
+func showUserInfo(bot *tgbotapi.BotAPI, chatID int64, user *models.User) {
+	info := fmt.Sprintf("👤 اطلاعات کاربر:\n\n"+
+		"📝 نام و نام خانوادگی: %s\n"+
+		"🆔 نام کاربری: @%s\n"+
+		"💳 شماره کارت: %s\n"+
+		"🏦 شماره شبا: %s\n"+
+		"✅ وضعیت: ثبت‌نام شده",
+		user.FullName, user.Username, user.CardNumber, user.Sheba)
+
+	bot.Send(tgbotapi.NewMessage(chatID, info))
 }
 
 func handleMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
@@ -152,6 +166,30 @@ func handleMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 		showStatsMenu(bot, msg.Chat.ID)
 	case "🆘 پشتیبانی":
 		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "برای پشتیبانی با ادمین تماس بگیرید: @YourAdminUsername"))
+	case "⬅️ بازگشت":
+		showMainMenu(bot, msg.Chat.ID)
+	default:
+		// Check if it's a submenu action
+		handleSubmenuActions(bot, db, msg)
+	}
+}
+
+func handleSubmenuActions(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
+	switch msg.Text {
+	case "💵 برداشت":
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "💵 منوی برداشت:\n\nاین قابلیت به زودی اضافه خواهد شد."))
+	case "📋 تاریخچه":
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "📋 تاریخچه تراکنش‌ها:\n\nاین قابلیت به زودی اضافه خواهد شد."))
+	case "💳 واریز USDT":
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "💳 منوی واریز USDT:\n\nاین قابلیت به زودی اضافه خواهد شد."))
+	case "🔗 لینک رفرال":
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "🔗 لینک رفرال شما:\n\nاین قابلیت به زودی اضافه خواهد شد."))
+	case "💰 دریافت پاداش":
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "💰 منوی دریافت پاداش:\n\nاین قابلیت به زودی اضافه خواهد شد."))
+	case "📈 آمار شخصی":
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "📈 آمار شخصی شما:\n\nاین قابلیت به زودی اضافه خواهد شد."))
+	case "👥 زیرمجموعه‌ها":
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "👥 لیست زیرمجموعه‌ها:\n\nاین قابلیت به زودی اضافه خواهد شد."))
 	default:
 		showMainMenu(bot, msg.Chat.ID)
 	}
