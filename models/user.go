@@ -27,23 +27,28 @@ func ValidatePersianFullName(fullName string) bool {
 		return false
 	}
 
-	// Pattern for Persian characters (including ی and ک)
-	// Persian Unicode range: \u0600-\u06FF, \uFB50-\uFDFF, \uFE70-\uFEFF
-	persianPattern := `^[\u0600-\u06FF\uFB50-\uFDFF\uFE70-\uFEFF\s]+$`
-	matched, _ := regexp.MatchString(persianPattern, fullName)
-	if !matched {
-		return false
-	}
-
 	// Split by spaces and check for at least 2 parts (first name and last name)
 	parts := strings.Fields(fullName)
 	if len(parts) < 2 {
 		return false
 	}
 
-	// Check each part has at least 2 characters
+	// Check each part has at least 2 characters and contains non-Latin characters
 	for _, part := range parts {
-		if len(strings.TrimSpace(part)) < 2 {
+		trimmedPart := strings.TrimSpace(part)
+		if len(trimmedPart) < 2 {
+			return false
+		}
+
+		// Check if the part contains non-Latin characters (Persian/Arabic)
+		hasNonLatin := false
+		for _, char := range trimmedPart {
+			if char > 127 { // Non-ASCII characters (Persian/Arabic)
+				hasNonLatin = true
+				break
+			}
+		}
+		if !hasNonLatin {
 			return false
 		}
 	}
