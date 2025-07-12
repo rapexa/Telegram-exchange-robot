@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"log"
 	"sync"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -21,10 +22,24 @@ var regTemp = struct {
 	sync.RWMutex
 }{m: make(map[int64]map[string]string)}
 
+func logInfo(format string, v ...interface{}) {
+	log.Printf("[INFO] "+format, v...)
+}
+
+func logError(format string, v ...interface{}) {
+	log.Printf("[ERROR] "+format, v...)
+}
+
+func logDebug(format string, v ...interface{}) {
+	log.Printf("[DEBUG] "+format, v...)
+}
+
 func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB) {
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
 	updates := bot.GetUpdatesChan(u)
+
+	logInfo("🔄 Bot update channel started, waiting for messages...")
 
 	for update := range updates {
 		if update.Message == nil {
@@ -61,7 +76,7 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 		return false
 	}
 
-	fmt.Printf("Registration state for user %d: %s\n", userID, state)
+	logInfo("Registration state for user %d: %s", userID, state)
 
 	if state == "full_name" {
 		// Validate Persian full name format
@@ -85,7 +100,7 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 			return true
 		}
 		// Save full name, ask for Sheba
-		fmt.Printf("Saving full name: %s for user %d\n", msg.Text, userID)
+		logInfo("Saving full name: %s for user %d", msg.Text, userID)
 		saveRegTemp(userID, "full_name", msg.Text)
 		setRegState(userID, "sheba")
 
@@ -109,9 +124,9 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 		return true
 	} else if state == "sheba" {
 		// Validate Sheba format
-		fmt.Printf("Validating sheba: '%s'\n", msg.Text)
+		logInfo("Validating sheba: '%s'", msg.Text)
 		if !models.ValidateSheba(msg.Text) {
-			fmt.Printf("Sheba validation failed for: '%s'\n", msg.Text)
+			logError("Sheba validation failed for: '%s'", msg.Text)
 
 			errorMsg := `❌ *خطا در فرمت شماره شبا*
 
@@ -132,7 +147,7 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 			return true
 		}
 		// Save Sheba, ask for card number
-		fmt.Printf("Saving sheba: %s for user %d\n", msg.Text, userID)
+		logInfo("Saving sheba: %s for user %d", msg.Text, userID)
 		saveRegTemp(userID, "sheba", msg.Text)
 		setRegState(userID, "card_number")
 
@@ -176,17 +191,17 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 			return true
 		}
 		// Save card number, complete registration
-		fmt.Printf("Saving card number: %s for user %d\n", msg.Text, userID)
+		logInfo("Saving card number: %s for user %d", msg.Text, userID)
 		saveRegTemp(userID, "card_number", msg.Text)
 		regTemp.RLock()
 		info := regTemp.m[userID]
 		regTemp.RUnlock()
 
-		fmt.Printf("Completing registration for user %d with info: %+v\n", userID, info)
+		logInfo("Completing registration for user %d with info: %+v", userID, info)
 
 		err := registerUser(db, userID, info["full_name"], info["sheba"], info["card_number"])
 		if err != nil {
-			fmt.Printf("Error registering user: %v\n", err)
+			logError("Error registering user: %v", err)
 			errorMsg := `❌ *خطا در ثبت اطلاعات*
 
 متأسفانه خطایی در ثبت اطلاعات رخ داد. لطفاً دوباره تلاش کنید.
@@ -199,7 +214,7 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 			return true
 		}
 
-		fmt.Printf("Registration completed successfully for user %d\n", userID)
+		logInfo("Registration completed successfully for user %d", userID)
 		clearRegState(userID)
 
 		successMsg := `🎉 *ثبت‌نام با موفقیت تکمیل شد!*
@@ -230,18 +245,18 @@ func handleStart(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 	user, err := getUserByTelegramID(db, userID)
 
 	// Debug logging
-	fmt.Printf("User ID: %d, Error: %v, User: %+v\n", userID, err, user)
+	logDebug("User ID: %d, Error: %v, User: %+v", userID, err, user)
 
 	// If user doesn't exist, create new user record
 	if err != nil || user == nil {
-		fmt.Printf("Creating new user for ID: %d\n", userID)
+		logInfo("Creating new user for ID: %d", userID)
 		newUser := &models.User{
 			Username:   msg.From.UserName,
 			TelegramID: userID,
 			Registered: false,
 		}
 		if err := db.Create(newUser).Error; err != nil {
-			fmt.Printf("Error creating user: %v\n", err)
+			logError("Error creating user: %v", err)
 			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ خطا در ایجاد کاربر. لطفاً دوباره تلاش کنید."))
 			return
 		}
@@ -272,12 +287,12 @@ func handleStart(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 	}
 
 	// User exists, check if registered
-	fmt.Printf("User found, registered: %v, full_name: '%s', sheba: '%s', card_number: '%s'\n",
+	logDebug("User found, registered: %v, full_name: '%s', sheba: '%s', card_number: '%s'",
 		user.Registered, user.FullName, user.Sheba, user.CardNumber)
 
 	// Check if user has incomplete registration (exists but missing data)
 	if !user.Registered || user.FullName == "" || user.Sheba == "" || user.CardNumber == "" {
-		fmt.Printf("User has incomplete registration, starting registration process\n")
+		logInfo("User has incomplete registration, starting registration process")
 		// User exists but not registered or has incomplete data, start registration
 		setRegState(userID, "full_name")
 		regTemp.Lock()
@@ -305,7 +320,7 @@ func handleStart(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 	}
 
 	// User is already registered, show their information and main menu
-	fmt.Printf("Showing info for registered user: %s\n", user.FullName)
+	logInfo("Showing info for registered user: %s", user.FullName)
 	showUserInfo(bot, msg.Chat.ID, user)
 	showMainMenu(bot, msg.Chat.ID)
 }

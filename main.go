@@ -2,6 +2,9 @@ package main
 
 import (
 	"log"
+	"os"
+	"strings"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"gorm.io/driver/mysql"
@@ -12,45 +15,111 @@ import (
 	"telegram-exchange-robot/models"
 )
 
-func main() {
-	// Load config
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		log.Fatalf("Error loading config: %v", err)
+const (
+	Version = "1.0.0"
+	Build   = "2025-07-12"
+)
+
+func initLogger() {
+	// Set log format for production
+	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
+
+	// Create logs directory if it doesn't exist
+	if err := os.MkdirAll("logs", 0755); err != nil {
+		log.Printf("WARNING: Could not create logs directory: %v", err)
 	}
 
+	// Open log file
+	logFile, err := os.OpenFile("logs/bot.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	if err != nil {
+		log.Printf("WARNING: Could not open log file: %v", err)
+	} else {
+		log.SetOutput(logFile)
+	}
+}
+
+func logInfo(format string, v ...interface{}) {
+	log.Printf("[INFO] "+format, v...)
+}
+
+func logError(format string, v ...interface{}) {
+	log.Printf("[ERROR] "+format, v...)
+}
+
+func logDebug(format string, v ...interface{}) {
+	log.Printf("[DEBUG] "+format, v...)
+}
+
+func main() {
+	// Initialize logger
+	initLogger()
+
+	// Startup banner
+	separator := strings.Repeat("=", 60)
+	logInfo(separator)
+	logInfo("🚀 Telegram Exchange Bot Starting...")
+	logInfo("📦 Version: %s", Version)
+	logInfo("🔨 Build: %s", Build)
+	logInfo("⏰ Start Time: %s", time.Now().Format("2006-01-02 15:04:05"))
+	logInfo(separator)
+
+	// Load config
+	logInfo("📋 Loading configuration...")
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		logError("Failed to load config: %v", err)
+		os.Exit(1)
+	}
+	logInfo("✅ Configuration loaded successfully")
+
 	// Connect to MySQL using GORM
+	logInfo("🗄️ Connecting to MySQL database...")
 	db, err := gorm.Open(mysql.Open(cfg.MySQL.DSN()), &gorm.Config{})
 	if err != nil {
-		log.Fatalf("Error connecting to MySQL: %v", err)
+		logError("Failed to connect to MySQL: %v", err)
+		os.Exit(1)
 	}
 
 	// Test database connection
 	sqlDB, err := db.DB()
 	if err != nil {
-		log.Fatalf("Error getting underlying sql.DB: %v", err)
+		logError("Failed to get underlying sql.DB: %v", err)
+		os.Exit(1)
 	}
 
 	if err := sqlDB.Ping(); err != nil {
-		log.Fatalf("Error pinging database: %v", err)
+		logError("Failed to ping database: %v", err)
+		os.Exit(1)
 	}
-	log.Println("Database connection successful")
+	logInfo("✅ Database connection successful")
 
 	// Auto-migrate the User model
+	logInfo("🔄 Running database migrations...")
 	if err := db.AutoMigrate(&models.User{}); err != nil {
-		log.Fatalf("Error migrating database: %v", err)
+		logError("Failed to migrate database: %v", err)
+		os.Exit(1)
 	}
-	log.Println("Database migration completed")
+	logInfo("✅ Database migration completed")
 
 	// Initialize Telegram Bot
+	logInfo("🤖 Initializing Telegram bot...")
 	bot, err := tgbotapi.NewBotAPI(cfg.Telegram.Token)
 	if err != nil {
-		log.Fatalf("Error creating Telegram bot: %v", err)
+		logError("Failed to create Telegram bot: %v", err)
+		os.Exit(1)
 	}
 	bot.Debug = cfg.Telegram.Debug
 
-	log.Printf("Authorized on account %s", bot.Self.UserName)
+	logInfo("✅ Bot authorized successfully")
+	logInfo("🤖 Bot Username: @%s", bot.Self.UserName)
+	logInfo("🆔 Bot ID: %d", bot.Self.ID)
+	logInfo("🔧 Debug Mode: %v", cfg.Telegram.Debug)
 
 	// Start bot handler
+	logInfo("🎯 Starting bot handler...")
+	logInfo(separator)
+	logInfo("🚀 Bot is now running and ready to receive messages!")
+	logInfo(separator)
+
 	handlers.StartBot(bot, db)
 }

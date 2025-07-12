@@ -2,6 +2,7 @@ package models
 
 import (
 	"fmt"
+	"log"
 	"regexp"
 	"strings"
 
@@ -18,6 +19,10 @@ type User struct {
 	Registered bool   `gorm:"default:false"`
 }
 
+func logDebug(format string, v ...interface{}) {
+	log.Printf("[DEBUG] "+format, v...)
+}
+
 // ValidatePersianFullName validates Persian full name format
 func ValidatePersianFullName(fullName string) bool {
 	// Remove extra spaces
@@ -25,6 +30,14 @@ func ValidatePersianFullName(fullName string) bool {
 
 	// Check if empty
 	if fullName == "" {
+		return false
+	}
+
+	// Pattern for Persian characters - more inclusive pattern
+	// This includes Arabic/Persian characters, Persian specific characters (ی، ک), and spaces
+	persianPattern := `^[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF\s]+$`
+	matched, _ := regexp.MatchString(persianPattern, fullName)
+	if !matched {
 		return false
 	}
 
@@ -76,20 +89,20 @@ func ValidateSheba(sheba string) bool {
 	matched, err := regexp.MatchString(pattern, sheba)
 
 	// Debug logging
-	fmt.Printf("Sheba validation: input='%s', length=%d, matched=%v, err=%v\n",
+	logDebug("Sheba validation: input='%s', length=%d, matched=%v, err=%v",
 		sheba, len(sheba), matched, err)
 
 	// Additional debug: show each character
 	if !matched {
-		fmt.Printf("Sheba characters: ")
+		charInfo := "Sheba characters: "
 		for i, char := range sheba {
-			fmt.Printf("'%c'(%d) ", char, char)
+			charInfo += fmt.Sprintf("'%c'(%d) ", char, char)
 			if i > 30 { // Limit output
-				fmt.Printf("...")
+				charInfo += "..."
 				break
 			}
 		}
-		fmt.Printf("\n")
+		logDebug(charInfo)
 	}
 
 	return matched
