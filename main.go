@@ -20,18 +20,14 @@ func main() {
 	}
 
 	// Connect to MySQL using GORM
-	dsn := cfg.MySQL.DSN()
-	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
+	db, err := gorm.Open(mysql.Open(cfg.MySQL.DSN()), &gorm.Config{})
 	if err != nil {
 		log.Fatalf("Error connecting to MySQL: %v", err)
 	}
 
-	// Auto-migrate the schema
-	err = db.AutoMigrate(
-		&models.User{},
-	)
-	if err != nil {
-		log.Fatalf("AutoMigrate failed: %v", err)
+	// Auto-migrate the User model
+	if err := db.AutoMigrate(&models.User{}); err != nil {
+		log.Fatalf("Error migrating database: %v", err)
 	}
 
 	// Initialize Telegram Bot

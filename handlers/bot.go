@@ -59,18 +59,33 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 	}
 
 	if state == "full_name" {
+		// Validate Persian full name format
+		if !models.ValidatePersianFullName(msg.Text) {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "فرمت نام صحیح نیست. لطفاً نام و نام خانوادگی را به فارسی وارد کنید:\nمثال: علی احمدی\n\nنکات مهم:\n• نام و نام خانوادگی باید به فارسی باشد\n• حداقل دو کلمه (نام و نام خانوادگی) الزامی است\n• هر کلمه حداقل ۲ حرف باشد"))
+			return true
+		}
 		// Save full name, ask for Sheba
 		saveRegTemp(userID, "full_name", msg.Text)
 		setRegState(userID, "sheba")
 		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "لطفاً شماره شبا را وارد کنید:"))
 		return true
 	} else if state == "sheba" {
+		// Validate Sheba format
+		if !models.ValidateSheba(msg.Text) {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "فرمت شماره شبا صحیح نیست. لطفاً شماره شبا را به فرمت صحیح وارد کنید:\nمثال: IR520630144905901219088011"))
+			return true
+		}
 		// Save Sheba, ask for card number
 		saveRegTemp(userID, "sheba", msg.Text)
 		setRegState(userID, "card_number")
 		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "لطفاً شماره کارت را وارد کنید:"))
 		return true
 	} else if state == "card_number" {
+		// Validate card number format
+		if !models.ValidateCardNumber(msg.Text) {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "فرمت شماره کارت صحیح نیست. لطفاً شماره کارت را به فرمت صحیح وارد کنید:\nمثال: 6037998215325563"))
+			return true
+		}
 		// Save card number, complete registration
 		saveRegTemp(userID, "card_number", msg.Text)
 		regTemp.RLock()
@@ -93,8 +108,18 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 func handleStart(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 	userID := int64(msg.From.ID)
 	user, err := getUserByTelegramID(db, userID)
-	if err != nil || user == nil || !user.Registered {
-		// Not registered, start registration
+	if err != nil || user == nil {
+		// User doesn't exist, create new user record
+		newUser := &models.User{
+			Username:   msg.From.UserName,
+			TelegramID: userID,
+			Registered: false,
+		}
+		if err := db.Create(newUser).Error; err != nil {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "خطا در ایجاد کاربر. لطفاً دوباره تلاش کنید."))
+			return
+		}
+		// Start registration
 		setRegState(userID, "full_name")
 		regTemp.Lock()
 		regTemp.m[userID] = make(map[string]string)
@@ -102,6 +127,17 @@ func handleStart(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "لطفاً نام و نام خانوادگی خود را وارد کنید:"))
 		return
 	}
+
+	if !user.Registered {
+		// User exists but not registered, start registration
+		setRegState(userID, "full_name")
+		regTemp.Lock()
+		regTemp.m[userID] = make(map[string]string)
+		regTemp.Unlock()
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "لطفاً نام و نام خانوادگی خود را وارد کنید:"))
+		return
+	}
+
 	// Already registered
 	showMainMenu(bot, msg.Chat.ID)
 }
