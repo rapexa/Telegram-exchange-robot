@@ -77,7 +77,9 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 		return true
 	} else if state == "sheba" {
 		// Validate Sheba format
+		fmt.Printf("Validating sheba: '%s'\n", msg.Text)
 		if !models.ValidateSheba(msg.Text) {
+			fmt.Printf("Sheba validation failed for: '%s'\n", msg.Text)
 			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "فرمت شماره شبا صحیح نیست. لطفاً شماره شبا را به فرمت صحیح وارد کنید:\nمثال: IR520630144905901219088011"))
 			return true
 		}

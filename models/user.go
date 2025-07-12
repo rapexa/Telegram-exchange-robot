@@ -1,6 +1,7 @@
 package models
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 
@@ -58,10 +59,39 @@ func ValidatePersianFullName(fullName string) bool {
 
 // ValidateSheba validates Iranian Sheba number format
 func ValidateSheba(sheba string) bool {
-	// Pattern for Iranian Sheba: IR + 2 digits + 3 digits + 16 digits
+	// Remove any spaces, tabs, newlines, and other whitespace
+	sheba = strings.TrimSpace(sheba)
+
+	// Remove any invisible characters
+	sheba = strings.Map(func(r rune) rune {
+		if r < 32 || r == 127 {
+			return -1 // Remove control characters
+		}
+		return r
+	}, sheba)
+
+	// Pattern for Iranian Sheba: IR + 22 digits
 	// Example: IR520630144905901219088011
 	pattern := `^IR\d{22}$`
-	matched, _ := regexp.MatchString(pattern, sheba)
+	matched, err := regexp.MatchString(pattern, sheba)
+
+	// Debug logging
+	fmt.Printf("Sheba validation: input='%s', length=%d, matched=%v, err=%v\n",
+		sheba, len(sheba), matched, err)
+
+	// Additional debug: show each character
+	if !matched {
+		fmt.Printf("Sheba characters: ")
+		for i, char := range sheba {
+			fmt.Printf("'%c'(%d) ", char, char)
+			if i > 30 { // Limit output
+				fmt.Printf("...")
+				break
+			}
+		}
+		fmt.Printf("\n")
+	}
+
 	return matched
 }
 
