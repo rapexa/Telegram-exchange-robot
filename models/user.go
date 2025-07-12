@@ -70,9 +70,9 @@ func ValidateSheba(sheba string) bool {
 		return r
 	}, sheba)
 
-	// Pattern for Iranian Sheba: IR + 22 digits
+	// Pattern for Iranian Sheba: IR + 24 digits (total 26 characters)
 	// Example: IR520630144905901219088011
-	pattern := `^IR\d{22}$`
+	pattern := `^IR\d{24}$`
 	matched, err := regexp.MatchString(pattern, sheba)
 
 	// Debug logging
