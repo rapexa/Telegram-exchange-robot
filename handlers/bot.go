@@ -109,18 +109,24 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 func handleStart(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 	userID := int64(msg.From.ID)
 	user, err := getUserByTelegramID(db, userID)
+
+	// Debug logging
+	fmt.Printf("User ID: %d, Error: %v, User: %+v\n", userID, err, user)
+
+	// If user doesn't exist, create new user record
 	if err != nil || user == nil {
-		// User doesn't exist, create new user record
+		fmt.Printf("Creating new user for ID: %d\n", userID)
 		newUser := &models.User{
 			Username:   msg.From.UserName,
 			TelegramID: userID,
 			Registered: false,
 		}
 		if err := db.Create(newUser).Error; err != nil {
+			fmt.Printf("Error creating user: %v\n", err)
 			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "خطا در ایجاد کاربر. لطفاً دوباره تلاش کنید."))
 			return
 		}
-		// Start registration
+		// Start registration for new user
 		setRegState(userID, "full_name")
 		regTemp.Lock()
 		regTemp.m[userID] = make(map[string]string)
@@ -129,6 +135,8 @@ func handleStart(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 		return
 	}
 
+	// User exists, check if registered
+	fmt.Printf("User found, registered: %v\n", user.Registered)
 	if !user.Registered {
 		// User exists but not registered, start registration
 		setRegState(userID, "full_name")
@@ -140,6 +148,7 @@ func handleStart(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 	}
 
 	// User is already registered, show their information and main menu
+	fmt.Printf("Showing info for registered user: %s\n", user.FullName)
 	showUserInfo(bot, msg.Chat.ID, user)
 	showMainMenu(bot, msg.Chat.ID)
 }
@@ -287,18 +296,33 @@ func getUserByTelegramID(db *gorm.DB, telegramID int64) (*models.User, error) {
 	var user models.User
 	err := db.Where("telegram_id = ?", telegramID).First(&user).Error
 	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			// User not found, this is expected for new users
+			return nil, nil
+		}
+		// Other database error
 		return nil, err
 	}
 	return &user, nil
 }
 
 func registerUser(db *gorm.DB, telegramID int64, fullName, sheba, cardNumber string) error {
-	return db.Model(&models.User{}).
+	result := db.Model(&models.User{}).
 		Where("telegram_id = ?", telegramID).
 		Updates(map[string]interface{}{
 			"full_name":   fullName,
 			"sheba":       sheba,
 			"card_number": cardNumber,
 			"registered":  true,
-		}).Error
+		})
+
+	if result.Error != nil {
+		return result.Error
+	}
+
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("no user found with telegram_id: %d", telegramID)
+	}
+
+	return nil
 }

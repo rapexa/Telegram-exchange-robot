@@ -25,10 +25,22 @@ func main() {
 		log.Fatalf("Error connecting to MySQL: %v", err)
 	}
 
+	// Test database connection
+	sqlDB, err := db.DB()
+	if err != nil {
+		log.Fatalf("Error getting underlying sql.DB: %v", err)
+	}
+
+	if err := sqlDB.Ping(); err != nil {
+		log.Fatalf("Error pinging database: %v", err)
+	}
+	log.Println("Database connection successful")
+
 	// Auto-migrate the User model
 	if err := db.AutoMigrate(&models.User{}); err != nil {
 		log.Fatalf("Error migrating database: %v", err)
 	}
+	log.Println("Database migration completed")
 
 	// Initialize Telegram Bot
 	bot, err := tgbotapi.NewBotAPI(cfg.Telegram.Token)
