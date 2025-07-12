@@ -6,5 +6,5 @@ mysql:
   dbname: "telegram_exchange_bot"
 
 telegram:
-  token: "YOUR_TELEGRAM_BOT_TOKEN"
+  token: "7754266447:AAGM-6kTViQxfYrwpGB3hHMSbEFcvyPrDos"
   debug: true
