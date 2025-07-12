@@ -40,6 +40,8 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB) {
 			switch update.Message.Command() {
 			case "start":
 				handleStart(bot, db, update.Message)
+			case "fixuser":
+				handleFixUser(bot, db, update.Message)
 			}
 			continue
 		}
@@ -59,6 +61,8 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 		return false
 	}
 
+	fmt.Printf("Registration state for user %d: %s\n", userID, state)
+
 	if state == "full_name" {
 		// Validate Persian full name format
 		if !models.ValidatePersianFullName(msg.Text) {
@@ -66,6 +70,7 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 			return true
 		}
 		// Save full name, ask for Sheba
+		fmt.Printf("Saving full name: %s for user %d\n", msg.Text, userID)
 		saveRegTemp(userID, "full_name", msg.Text)
 		setRegState(userID, "sheba")
 		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "لطفاً شماره شبا را وارد کنید:"))
@@ -77,6 +82,7 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 			return true
 		}
 		// Save Sheba, ask for card number
+		fmt.Printf("Saving sheba: %s for user %d\n", msg.Text, userID)
 		saveRegTemp(userID, "sheba", msg.Text)
 		setRegState(userID, "card_number")
 		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "لطفاً شماره کارت را وارد کنید:"))
@@ -88,16 +94,22 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 			return true
 		}
 		// Save card number, complete registration
+		fmt.Printf("Saving card number: %s for user %d\n", msg.Text, userID)
 		saveRegTemp(userID, "card_number", msg.Text)
 		regTemp.RLock()
 		info := regTemp.m[userID]
 		regTemp.RUnlock()
-		// Register user using GORM
+
+		fmt.Printf("Completing registration for user %d with info: %+v\n", userID, info)
+
 		err := registerUser(db, userID, info["full_name"], info["sheba"], info["card_number"])
 		if err != nil {
+			fmt.Printf("Error registering user: %v\n", err)
 			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "خطا در ثبت اطلاعات. لطفاً دوباره تلاش کنید."))
 			return true
 		}
+
+		fmt.Printf("Registration completed successfully for user %d\n", userID)
 		clearRegState(userID)
 		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "ثبت‌نام با موفقیت انجام شد!"))
 		showMainMenu(bot, msg.Chat.ID)
@@ -136,9 +148,13 @@ func handleStart(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 	}
 
 	// User exists, check if registered
-	fmt.Printf("User found, registered: %v\n", user.Registered)
-	if !user.Registered {
-		// User exists but not registered, start registration
+	fmt.Printf("User found, registered: %v, full_name: '%s', sheba: '%s', card_number: '%s'\n",
+		user.Registered, user.FullName, user.Sheba, user.CardNumber)
+
+	// Check if user has incomplete registration (exists but missing data)
+	if !user.Registered || user.FullName == "" || user.Sheba == "" || user.CardNumber == "" {
+		fmt.Printf("User has incomplete registration, starting registration process\n")
+		// User exists but not registered or has incomplete data, start registration
 		setRegState(userID, "full_name")
 		regTemp.Lock()
 		regTemp.m[userID] = make(map[string]string)
@@ -325,4 +341,26 @@ func registerUser(db *gorm.DB, telegramID int64, fullName, sheba, cardNumber str
 	}
 
 	return nil
+}
+
+func handleFixUser(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
+	userID := int64(msg.From.ID)
+	user, err := getUserByTelegramID(db, userID)
+
+	if err != nil || user == nil {
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "کاربر یافت نشد. لطفاً ابتدا /start را بزنید."))
+		return
+	}
+
+	if user.Registered && user.FullName != "" && user.Sheba != "" && user.CardNumber != "" {
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "کاربر شما قبلاً ثبت‌نام شده است."))
+		return
+	}
+
+	// Start registration process for incomplete user
+	setRegState(userID, "full_name")
+	regTemp.Lock()
+	regTemp.m[userID] = make(map[string]string)
+	regTemp.Unlock()
+	bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "لطفاً نام و نام خانوادگی خود را وارد کنید:"))
 }
