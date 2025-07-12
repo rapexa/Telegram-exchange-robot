@@ -13,7 +13,7 @@ set "BUILD_FLAGS=-ldflags=-s -ldflags=-w -ldflags=-X main.Build=%BUILD_TIME% -ld
 
 REM Build the executable
 echo 📦 Building executable...
-go build %BUILD_FLAGS% -o telegram-exchange-bot.exe main.go
+go build %BUILD_FLAGS% -o bot.exe main.go
 
 if %ERRORLEVEL% EQU 0 (
     echo ✅ Build successful!
@@ -22,7 +22,7 @@ if %ERRORLEVEL% EQU 0 (
     echo 🏷️ Version: %VERSION%
     echo.
     echo 🚀 To run the bot:
-    echo    telegram-exchange-bot.exe
+    echo    bot.exe
     echo.
     echo 📋 Make sure to:
     echo    1. Set up config/config.yaml with your credentials
