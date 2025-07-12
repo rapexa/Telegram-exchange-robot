@@ -66,33 +66,113 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 	if state == "full_name" {
 		// Validate Persian full name format
 		if !models.ValidatePersianFullName(msg.Text) {
-			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "فرمت نام صحیح نیست. لطفاً نام و نام خانوادگی را به فارسی وارد کنید:\nمثال: علی احمدی\n\nنکات مهم:\n• نام و نام خانوادگی باید به فارسی باشد\n• حداقل دو کلمه (نام و نام خانوادگی) الزامی است\n• هر کلمه حداقل ۲ حرف باشد"))
+			errorMsg := `❌ *خطا در فرمت نام*
+
+فرمت نام صحیح نیست. لطفاً نام و نام خانوادگی را به فارسی وارد کنید:
+
+📝 *مثال صحیح:* علی احمدی
+
+💡 *نکات مهم:*
+• نام و نام خانوادگی باید به فارسی باشد
+• حداقل دو کلمه (نام و نام خانوادگی) الزامی است
+• هر کلمه حداقل ۲ حرف باشد
+
+🔄 لطفاً دوباره تلاش کنید:`
+
+			message := tgbotapi.NewMessage(msg.Chat.ID, errorMsg)
+			message.ParseMode = "Markdown"
+			bot.Send(message)
 			return true
 		}
 		// Save full name, ask for Sheba
 		fmt.Printf("Saving full name: %s for user %d\n", msg.Text, userID)
 		saveRegTemp(userID, "full_name", msg.Text)
 		setRegState(userID, "sheba")
-		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "لطفاً شماره شبا را وارد کنید:"))
+
+		shebaMsg := `✅ *مرحله ۱ تکمیل شد!*
+
+👤 نام و نام خانوادگی: *%s*
+
+📝 *مرحله ۲: شماره شبا*
+
+لطفاً شماره شبا حساب بانکی خود را وارد کنید:
+مثال: IR520630144905901219088011
+
+💡 *نکات مهم:*
+• شماره شبا باید با IR شروع شود
+• شامل ۲۴ رقم بعد از IR باشد
+• بدون فاصله یا کاراکتر اضافی`
+
+		message := tgbotapi.NewMessage(msg.Chat.ID, fmt.Sprintf(shebaMsg, msg.Text))
+		message.ParseMode = "Markdown"
+		bot.Send(message)
 		return true
 	} else if state == "sheba" {
 		// Validate Sheba format
 		fmt.Printf("Validating sheba: '%s'\n", msg.Text)
 		if !models.ValidateSheba(msg.Text) {
 			fmt.Printf("Sheba validation failed for: '%s'\n", msg.Text)
-			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "فرمت شماره شبا صحیح نیست. لطفاً شماره شبا را به فرمت صحیح وارد کنید:\nمثال: IR520630144905901219088011"))
+
+			errorMsg := `❌ *خطا در فرمت شماره شبا*
+
+فرمت شماره شبا صحیح نیست. لطفاً شماره شبا را به فرمت صحیح وارد کنید:
+
+🏦 *مثال صحیح:* IR520630144905901219088011
+
+💡 *نکات مهم:*
+• شماره شبا باید با IR شروع شود
+• شامل ۲۴ رقم بعد از IR باشد
+• بدون فاصله یا کاراکتر اضافی
+
+🔄 لطفاً دوباره تلاش کنید:`
+
+			message := tgbotapi.NewMessage(msg.Chat.ID, errorMsg)
+			message.ParseMode = "Markdown"
+			bot.Send(message)
 			return true
 		}
 		// Save Sheba, ask for card number
 		fmt.Printf("Saving sheba: %s for user %d\n", msg.Text, userID)
 		saveRegTemp(userID, "sheba", msg.Text)
 		setRegState(userID, "card_number")
-		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "لطفاً شماره کارت را وارد کنید:"))
+
+		cardMsg := `✅ *مرحله ۲ تکمیل شد!*
+
+🏦 شماره شبا: *%s*
+
+📝 *مرحله ۳: شماره کارت*
+
+لطفاً شماره کارت بانکی خود را وارد کنید:
+مثال: 6037998215325563
+
+💡 *نکات مهم:*
+• شماره کارت باید ۱۶ رقم باشد
+• بدون فاصله یا کاراکتر اضافی
+• فقط اعداد مجاز هستند`
+
+		message := tgbotapi.NewMessage(msg.Chat.ID, fmt.Sprintf(cardMsg, msg.Text))
+		message.ParseMode = "Markdown"
+		bot.Send(message)
 		return true
 	} else if state == "card_number" {
 		// Validate card number format
 		if !models.ValidateCardNumber(msg.Text) {
-			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "فرمت شماره کارت صحیح نیست. لطفاً شماره کارت را به فرمت صحیح وارد کنید:\nمثال: 6037998215325563"))
+			errorMsg := `❌ *خطا در فرمت شماره کارت*
+
+فرمت شماره کارت صحیح نیست. لطفاً شماره کارت را به فرمت صحیح وارد کنید:
+
+💳 *مثال صحیح:* 6037998215325563
+
+💡 *نکات مهم:*
+• شماره کارت باید ۱۶ رقم باشد
+• بدون فاصله یا کاراکتر اضافی
+• فقط اعداد مجاز هستند
+
+🔄 لطفاً دوباره تلاش کنید:`
+
+			message := tgbotapi.NewMessage(msg.Chat.ID, errorMsg)
+			message.ParseMode = "Markdown"
+			bot.Send(message)
 			return true
 		}
 		// Save card number, complete registration
@@ -107,13 +187,38 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 		err := registerUser(db, userID, info["full_name"], info["sheba"], info["card_number"])
 		if err != nil {
 			fmt.Printf("Error registering user: %v\n", err)
-			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "خطا در ثبت اطلاعات. لطفاً دوباره تلاش کنید."))
+			errorMsg := `❌ *خطا در ثبت اطلاعات*
+
+متأسفانه خطایی در ثبت اطلاعات رخ داد. لطفاً دوباره تلاش کنید.
+
+🔄 برای شروع مجدد، دستور /start را بزنید.`
+
+			message := tgbotapi.NewMessage(msg.Chat.ID, errorMsg)
+			message.ParseMode = "Markdown"
+			bot.Send(message)
 			return true
 		}
 
 		fmt.Printf("Registration completed successfully for user %d\n", userID)
 		clearRegState(userID)
-		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "ثبت‌نام با موفقیت انجام شد!"))
+
+		successMsg := `🎉 *ثبت‌نام با موفقیت تکمیل شد!*
+
+✅ تمام مراحل ثبت‌نام با موفقیت انجام شد.
+
+👤 *اطلاعات ثبت شده:*
+• نام و نام خانوادگی: *%s*
+• شماره شبا: *%s*
+• شماره کارت: *%s*
+
+🚀 حالا می‌توانید از تمام خدمات ربات استفاده کنید!
+
+👇 منوی اصلی را انتخاب کنید:`
+
+		message := tgbotapi.NewMessage(msg.Chat.ID, fmt.Sprintf(successMsg, info["full_name"], info["sheba"], info["card_number"]))
+		message.ParseMode = "Markdown"
+		bot.Send(message)
+
 		showMainMenu(bot, msg.Chat.ID)
 		return true
 	}
@@ -137,7 +242,7 @@ func handleStart(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 		}
 		if err := db.Create(newUser).Error; err != nil {
 			fmt.Printf("Error creating user: %v\n", err)
-			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "خطا در ایجاد کاربر. لطفاً دوباره تلاش کنید."))
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ خطا در ایجاد کاربر. لطفاً دوباره تلاش کنید."))
 			return
 		}
 		// Start registration for new user
@@ -145,7 +250,24 @@ func handleStart(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 		regTemp.Lock()
 		regTemp.m[userID] = make(map[string]string)
 		regTemp.Unlock()
-		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "لطفاً نام و نام خانوادگی خود را وارد کنید:"))
+
+		welcomeMsg := `🎉 *خوش آمدید به ربات صرافی ارز دیجیتال!*
+
+🔐 برای شروع استفاده از خدمات ما، لطفاً اطلاعات خود را تکمیل کنید.
+
+📝 *مرحله ۱: نام و نام خانوادگی*
+
+لطفاً نام و نام خانوادگی خود را به فارسی وارد کنید:
+مثال: علی احمدی
+
+💡 *نکات مهم:*
+• نام و نام خانوادگی باید به فارسی باشد
+• حداقل دو کلمه (نام و نام خانوادگی) الزامی است
+• هر کلمه حداقل ۲ حرف باشد`
+
+		message := tgbotapi.NewMessage(msg.Chat.ID, welcomeMsg)
+		message.ParseMode = "Markdown"
+		bot.Send(message)
 		return
 	}
 
@@ -161,7 +283,24 @@ func handleStart(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 		regTemp.Lock()
 		regTemp.m[userID] = make(map[string]string)
 		regTemp.Unlock()
-		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "لطفاً نام و نام خانوادگی خود را وارد کنید:"))
+
+		welcomeBackMsg := `🔄 *تکمیل ثبت‌نام*
+
+👋 سلام! به نظر می‌رسد ثبت‌نام شما ناتمام مانده است.
+
+📝 *مرحله ۱: نام و نام خانوادگی*
+
+لطفاً نام و نام خانوادگی خود را به فارسی وارد کنید:
+مثال: علی احمدی
+
+💡 *نکات مهم:*
+• نام و نام خانوادگی باید به فارسی باشد
+• حداقل دو کلمه (نام و نام خانوادگی) الزامی است
+• هر کلمه حداقل ۲ حرف باشد`
+
+		message := tgbotapi.NewMessage(msg.Chat.ID, welcomeBackMsg)
+		message.ParseMode = "Markdown"
+		bot.Send(message)
 		return
 	}
 
@@ -172,15 +311,20 @@ func handleStart(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 }
 
 func showUserInfo(bot *tgbotapi.BotAPI, chatID int64, user *models.User) {
-	info := fmt.Sprintf("👤 اطلاعات کاربر:\n\n"+
-		"📝 نام و نام خانوادگی: %s\n"+
-		"🆔 نام کاربری: @%s\n"+
-		"💳 شماره کارت: %s\n"+
-		"🏦 شماره شبا: %s\n"+
-		"✅ وضعیت: ثبت‌نام شده",
+	info := fmt.Sprintf(`👤 *اطلاعات کاربر*
+
+📝 *نام و نام خانوادگی:* %s
+🆔 *نام کاربری:* @%s
+💳 *شماره کارت:* %s
+🏦 *شماره شبا:* %s
+✅ *وضعیت:* ثبت‌نام شده
+
+🎉 *خوش آمدید!* حالا می‌توانید از تمام خدمات ربات استفاده کنید.`,
 		user.FullName, user.Username, user.CardNumber, user.Sheba)
 
-	bot.Send(tgbotapi.NewMessage(chatID, info))
+	message := tgbotapi.NewMessage(chatID, info)
+	message.ParseMode = "Markdown"
+	bot.Send(message)
 }
 
 func handleMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
@@ -233,8 +377,19 @@ func showMainMenu(bot *tgbotapi.BotAPI, chatID int64) {
 			tgbotapi.NewKeyboardButton("🆘 پشتیبانی"),
 		),
 	)
-	msg := tgbotapi.NewMessage(chatID, "منوی اصلی را انتخاب کنید:")
+	menu.ResizeKeyboard = true
+	menu.OneTimeKeyboard = false
+
+	msg := tgbotapi.NewMessage(chatID, `🏠 *منوی اصلی*
+
+لطفاً یکی از گزینه‌های زیر را انتخاب کنید:
+
+💰 *کیف پول* - مدیریت موجودی و تراکنش‌ها
+🎁 *پاداش* - سیستم رفرال و پاداش‌ها
+📊 *آمار* - آمار شخصی و زیرمجموعه‌ها
+🆘 *پشتیبانی* - ارتباط با پشتیبانی`)
 	msg.ReplyMarkup = menu
+	msg.ParseMode = "Markdown"
 	bot.Send(msg)
 }
 
@@ -249,8 +404,19 @@ func showWalletMenu(bot *tgbotapi.BotAPI, chatID int64) {
 			tgbotapi.NewKeyboardButton("⬅️ بازگشت"),
 		),
 	)
-	msg := tgbotapi.NewMessage(chatID, "منوی کیف پول:")
+	menu.ResizeKeyboard = true
+	menu.OneTimeKeyboard = false
+
+	msg := tgbotapi.NewMessage(chatID, `💰 *منوی کیف پول*
+
+لطفاً یکی از گزینه‌های زیر را انتخاب کنید:
+
+💵 *برداشت* - درخواست برداشت ریالی
+📋 *تاریخچه* - مشاهده تراکنش‌های قبلی
+💳 *واریز USDT* - واریز ارز دیجیتال
+⬅️ *بازگشت* - بازگشت به منوی اصلی`)
 	msg.ReplyMarkup = menu
+	msg.ParseMode = "Markdown"
 	bot.Send(msg)
 }
 
@@ -264,8 +430,18 @@ func showRewardsMenu(bot *tgbotapi.BotAPI, chatID int64) {
 			tgbotapi.NewKeyboardButton("⬅️ بازگشت"),
 		),
 	)
-	msg := tgbotapi.NewMessage(chatID, "منوی پاداش:")
+	menu.ResizeKeyboard = true
+	menu.OneTimeKeyboard = false
+
+	msg := tgbotapi.NewMessage(chatID, `🎁 *منوی پاداش*
+
+لطفاً یکی از گزینه‌های زیر را انتخاب کنید:
+
+🔗 *لینک رفرال* - دریافت لینک معرفی
+💰 *دریافت پاداش* - انتقال پاداش به کیف پول
+⬅️ *بازگشت* - بازگشت به منوی اصلی`)
 	msg.ReplyMarkup = menu
+	msg.ParseMode = "Markdown"
 	bot.Send(msg)
 }
 
@@ -279,8 +455,18 @@ func showStatsMenu(bot *tgbotapi.BotAPI, chatID int64) {
 			tgbotapi.NewKeyboardButton("⬅️ بازگشت"),
 		),
 	)
-	msg := tgbotapi.NewMessage(chatID, "منوی آمار:")
+	menu.ResizeKeyboard = true
+	menu.OneTimeKeyboard = false
+
+	msg := tgbotapi.NewMessage(chatID, `📊 *منوی آمار*
+
+لطفاً یکی از گزینه‌های زیر را انتخاب کنید:
+
+📈 *آمار شخصی* - آمار تراکنش‌ها و موجودی
+👥 *زیرمجموعه‌ها* - لیست کاربران معرفی شده
+⬅️ *بازگشت* - بازگشت به منوی اصلی`)
 	msg.ReplyMarkup = menu
+	msg.ParseMode = "Markdown"
 	bot.Send(msg)
 }
 
