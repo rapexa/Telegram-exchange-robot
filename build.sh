@@ -8,16 +8,16 @@ echo "🔨 Building Telegram Exchange Bot for Production..."
 BUILD_TIME=$(date -u '+%Y-%m-%d_%H:%M:%S')
 VERSION="0.0.1"
 
-# Build flags for production
+# Build flags for production (corrected syntax)
 BUILD_FLAGS="-ldflags=-s -ldflags=-w -ldflags=-X main.Build=$BUILD_TIME -ldflags=-X main.Version=$VERSION"
 
 # Build the executable
 echo "📦 Building executable..."
-GOOS=linux GOARCH=amd64 go build $BUILD_FLAGS -o bot .
+GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X main.Build=$BUILD_TIME -X main.Version=$VERSION" -o bot .
 
 if [ $? -eq 0 ]; then
     echo "✅ Build successful!"
-    echo "📁 Executable: telegram-exchange-bot"
+    echo "📁 Executable: bot"
     echo "📅 Build Time: $BUILD_TIME"
     echo "🏷️ Version: $VERSION"
     echo ""

@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	Version = "1.0.0"
-	Build   = "2025-07-12"
+	Version = "dev"
+	Build   = "unknown"
 )
 
 func initLogger() {
