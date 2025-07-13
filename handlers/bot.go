@@ -46,9 +46,9 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB) {
 			continue
 		}
 
-		// Registration flow state machine
+		// Registration flow state machine - check first
 		if handleRegistration(bot, db, update.Message) {
-			continue
+			continue // User is in registration flow, skip other handlers
 		}
 
 		if update.Message.IsCommand() {
@@ -61,7 +61,43 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB) {
 			continue
 		}
 
-		// Main menu navigation
+		// Before showing main menu, check if user is fully registered
+		userID := int64(update.Message.From.ID)
+		user, err := getUserByTelegramID(db, userID)
+
+		if err != nil || user == nil {
+			// User doesn't exist, redirect to registration
+			logInfo("User %d not found, redirecting to registration", userID)
+			handleStart(bot, db, update.Message)
+			continue
+		}
+
+		// Check if user is fully registered
+		if !user.Registered || user.FullName == "" || user.Sheba == "" || user.CardNumber == "" {
+			// User is not fully registered, redirect to registration
+			logInfo("User %d not fully registered, redirecting to registration", userID)
+
+			// Send a message explaining why they can't access menus
+			redirectMsg := `🔒 *دسترسی محدود*
+
+⚠️ برای استفاده از خدمات ربات، ابتدا باید ثبت‌نام خود را تکمیل کنید.
+
+📝 *مراحل ثبت‌نام:*
+1️⃣ نام و نام خانوادگی
+2️⃣ شماره شبا
+3️⃣ شماره کارت
+
+🔄 در حال انتقال به صفحه ثبت‌نام...`
+
+			message := tgbotapi.NewMessage(update.Message.Chat.ID, redirectMsg)
+			message.ParseMode = "Markdown"
+			bot.Send(message)
+
+			handleStart(bot, db, update.Message)
+			continue
+		}
+
+		// User is fully registered, show main menu
 		handleMainMenu(bot, db, update.Message)
 	}
 }
@@ -293,17 +329,80 @@ func handleStart(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 	// Check if user has incomplete registration (exists but missing data)
 	if !user.Registered || user.FullName == "" || user.Sheba == "" || user.CardNumber == "" {
 		logInfo("User has incomplete registration, starting registration process")
-		// User exists but not registered or has incomplete data, start registration
-		setRegState(userID, "full_name")
+
+		// Check what data is missing and start from appropriate step
+		var startState string
+		var existingData map[string]string = make(map[string]string)
+
+		if user.FullName != "" {
+			existingData["full_name"] = user.FullName
+			if user.Sheba != "" {
+				existingData["sheba"] = user.Sheba
+				startState = "card_number"
+			} else {
+				startState = "sheba"
+			}
+		} else {
+			startState = "full_name"
+		}
+
+		// Set registration state and temp data
+		setRegState(userID, startState)
 		regTemp.Lock()
-		regTemp.m[userID] = make(map[string]string)
+		regTemp.m[userID] = existingData
 		regTemp.Unlock()
 
-		welcomeBackMsg := `🔄 *تکمیل ثبت‌نام*
+		// Show appropriate message based on missing data
+		var welcomeBackMsg string
+		if startState == "card_number" {
+			welcomeBackMsg = `🔄 *تکمیل ثبت‌نام*
 
 👋 سلام! به نظر می‌رسد ثبت‌نام شما ناتمام مانده است.
 
-📝 *مرحله ۱: نام و نام خانوادگی*
+✅ *اطلاعات موجود:*
+• نام و نام خانوادگی: *%s*
+• شماره شبا: *%s*
+
+📝 *مرحله 3: شماره کارت*
+
+لطفاً شماره کارت بانکی خود را وارد کنید:
+مثال: 6037998215325563
+
+💡 *نکات مهم:*
+• شماره کارت باید 16 رقم باشد
+• بدون فاصله یا کاراکتر اضافی
+• فقط اعداد مجاز هستند`
+
+			message := tgbotapi.NewMessage(msg.Chat.ID, fmt.Sprintf(welcomeBackMsg, user.FullName, user.Sheba))
+			message.ParseMode = "Markdown"
+			bot.Send(message)
+		} else if startState == "sheba" {
+			welcomeBackMsg = `🔄 *تکمیل ثبت‌نام*
+
+👋 سلام! به نظر می‌رسد ثبت‌نام شما ناتمام مانده است.
+
+✅ *اطلاعات موجود:*
+• نام و نام خانوادگی: *%s*
+
+📝 *مرحله 2: شماره شبا*
+
+لطفاً شماره شبا حساب بانکی خود را وارد کنید:
+مثال: IR520630144905901219088011
+
+💡 *نکات مهم:*
+• شماره شبا باید با IR شروع شود
+• شامل 24 رقم بعد از IR باشد
+• بدون فاصله یا کاراکتر اضافی`
+
+			message := tgbotapi.NewMessage(msg.Chat.ID, fmt.Sprintf(welcomeBackMsg, user.FullName))
+			message.ParseMode = "Markdown"
+			bot.Send(message)
+		} else {
+			welcomeBackMsg = `🔄 *تکمیل ثبت‌نام*
+
+👋 سلام! به نظر می‌رسد ثبت‌نام شما ناتمام مانده است.
+
+📝 *مرحله 1: نام و نام خانوادگی*
 
 لطفاً نام و نام خانوادگی خود را به فارسی وارد کنید:
 مثال: علی احمدی
@@ -311,11 +410,12 @@ func handleStart(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 💡 *نکات مهم:*
 • نام و نام خانوادگی باید به فارسی باشد
 • حداقل دو کلمه (نام و نام خانوادگی) الزامی است
-• هر کلمه حداقل ۲ حرف باشد`
+• هر کلمه حداقل 2 حرف باشد`
 
-		message := tgbotapi.NewMessage(msg.Chat.ID, welcomeBackMsg)
-		message.ParseMode = "Markdown"
-		bot.Send(message)
+			message := tgbotapi.NewMessage(msg.Chat.ID, welcomeBackMsg)
+			message.ParseMode = "Markdown"
+			bot.Send(message)
+		}
 		return
 	}
 
@@ -343,6 +443,39 @@ func showUserInfo(bot *tgbotapi.BotAPI, chatID int64, user *models.User) {
 }
 
 func handleMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
+	// Check if user is fully registered before allowing menu access
+	userID := int64(msg.From.ID)
+	user, err := getUserByTelegramID(db, userID)
+
+	if err != nil || user == nil {
+		logInfo("User %d not found in main menu, redirecting to registration", userID)
+		handleStart(bot, db, msg)
+		return
+	}
+
+	if !user.Registered || user.FullName == "" || user.Sheba == "" || user.CardNumber == "" {
+		logInfo("User %d not fully registered in main menu, redirecting to registration", userID)
+
+		// Send a message explaining why they can't access menus
+		redirectMsg := `🔒 *دسترسی محدود*
+
+⚠️ برای استفاده از خدمات ربات، ابتدا باید ثبت‌نام خود را تکمیل کنید.
+
+📝 *مراحل ثبت‌نام:*
+1️⃣ نام و نام خانوادگی
+2️⃣ شماره شبا
+3️⃣ شماره کارت
+
+🔄 در حال انتقال به صفحه ثبت‌نام...`
+
+		message := tgbotapi.NewMessage(msg.Chat.ID, redirectMsg)
+		message.ParseMode = "Markdown"
+		bot.Send(message)
+
+		handleStart(bot, db, msg)
+		return
+	}
+
 	switch msg.Text {
 	case "💰 کیف پول":
 		showWalletMenu(bot, msg.Chat.ID)
@@ -361,6 +494,39 @@ func handleMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 }
 
 func handleSubmenuActions(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
+	// Check if user is fully registered before allowing submenu access
+	userID := int64(msg.From.ID)
+	user, err := getUserByTelegramID(db, userID)
+
+	if err != nil || user == nil {
+		logInfo("User %d not found in submenu, redirecting to registration", userID)
+		handleStart(bot, db, msg)
+		return
+	}
+
+	if !user.Registered || user.FullName == "" || user.Sheba == "" || user.CardNumber == "" {
+		logInfo("User %d not fully registered in submenu, redirecting to registration", userID)
+
+		// Send a message explaining why they can't access menus
+		redirectMsg := `🔒 *دسترسی محدود*
+
+⚠️ برای استفاده از خدمات ربات، ابتدا باید ثبت‌نام خود را تکمیل کنید.
+
+📝 *مراحل ثبت‌نام:*
+1️⃣ نام و نام خانوادگی
+2️⃣ شماره شبا
+3️⃣ شماره کارت
+
+🔄 در حال انتقال به صفحه ثبت‌نام...`
+
+		message := tgbotapi.NewMessage(msg.Chat.ID, redirectMsg)
+		message.ParseMode = "Markdown"
+		bot.Send(message)
+
+		handleStart(bot, db, msg)
+		return
+	}
+
 	switch msg.Text {
 	case "💵 برداشت":
 		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "💵 منوی برداشت:\n\nاین قابلیت به زودی اضافه خواهد شد."))
