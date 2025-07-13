@@ -25,48 +25,52 @@ func logDebug(format string, v ...interface{}) {
 
 // ValidatePersianFullName validates Persian full name format
 func ValidatePersianFullName(fullName string) bool {
+	// Debug logging
+	logDebug("Validating Persian full name: '%s'", fullName)
+
 	// Remove extra spaces
 	fullName = strings.TrimSpace(fullName)
 
 	// Check if empty
 	if fullName == "" {
-		return false
-	}
-
-	// Pattern for Persian characters - more inclusive pattern
-	// This includes Arabic/Persian characters, Persian specific characters (ی، ک), and spaces
-	persianPattern := `^[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF\s]+$`
-	matched, _ := regexp.MatchString(persianPattern, fullName)
-	if !matched {
+		logDebug("Name is empty")
 		return false
 	}
 
 	// Split by spaces and check for at least 2 parts (first name and last name)
 	parts := strings.Fields(fullName)
+	logDebug("Name parts: %v (count: %d)", parts, len(parts))
 	if len(parts) < 2 {
+		logDebug("Not enough parts (need at least 2)")
 		return false
 	}
 
 	// Check each part has at least 2 characters and contains non-Latin characters
-	for _, part := range parts {
+	for i, part := range parts {
 		trimmedPart := strings.TrimSpace(part)
+		logDebug("Part %d: '%s' (length: %d)", i+1, trimmedPart, len(trimmedPart))
+
 		if len(trimmedPart) < 2 {
+			logDebug("Part %d too short (length: %d)", i+1, len(trimmedPart))
 			return false
 		}
 
 		// Check if the part contains non-Latin characters (Persian/Arabic)
 		hasNonLatin := false
-		for _, char := range trimmedPart {
+		for j, char := range trimmedPart {
 			if char > 127 { // Non-ASCII characters (Persian/Arabic)
 				hasNonLatin = true
+				logDebug("Part %d, char %d: '%c' (code: %d) - non-Latin found", i+1, j+1, char, char)
 				break
 			}
 		}
 		if !hasNonLatin {
+			logDebug("Part %d has no non-Latin characters", i+1)
 			return false
 		}
 	}
 
+	logDebug("Persian full name validation passed")
 	return true
 }
 
