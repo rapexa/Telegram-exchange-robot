@@ -551,10 +551,14 @@ func showMainMenu(bot *tgbotapi.BotAPI, chatID int64) {
 	menu := tgbotapi.NewReplyKeyboard(
 		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("💰 کیف پول"),
+		),
+		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("🎁 پاداش"),
 		),
 		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("📊 آمار"),
+		),
+		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("🆘 پشتیبانی"),
 		),
 	)
@@ -578,10 +582,14 @@ func showWalletMenu(bot *tgbotapi.BotAPI, chatID int64) {
 	menu := tgbotapi.NewReplyKeyboard(
 		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("💵 برداشت"),
+		),
+		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("📋 تاریخچه"),
 		),
 		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("💳 واریز USDT"),
+		),
+		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("⬅️ بازگشت"),
 		),
 	)
@@ -605,6 +613,8 @@ func showRewardsMenu(bot *tgbotapi.BotAPI, chatID int64) {
 	menu := tgbotapi.NewReplyKeyboard(
 		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("🔗 لینک رفرال"),
+		),
+		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("💰 دریافت پاداش"),
 		),
 		tgbotapi.NewKeyboardButtonRow(
@@ -630,6 +640,8 @@ func showStatsMenu(bot *tgbotapi.BotAPI, chatID int64) {
 	menu := tgbotapi.NewReplyKeyboard(
 		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("📈 آمار شخصی"),
+		),
+		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("👥 زیرمجموعه‌ها"),
 		),
 		tgbotapi.NewKeyboardButtonRow(
