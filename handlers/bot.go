@@ -831,8 +831,20 @@ func handleReferralLink(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 
 // Handler for 'دریافت پاداش'
 func handleReward(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
-	// Reward system is currently disabled
-	msgText := `❌ سیستم پاداش در حال حاضر فعال نیست و به زودی منطق جدیدی برای آن اضافه خواهد شد.`
+	userID := int64(msg.From.ID)
+	user, err := getUserByTelegramID(db, userID)
+	if err != nil || user == nil {
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "کاربر یافت نشد. لطفاً ابتدا ثبت‌نام کنید."))
+		return
+	}
+
+	msgText := fmt.Sprintf(`💰 *موجودی پاداش شما:*
+
+%.2f USDT
+
+هر زیرمجموعه ثبت‌نام شده: ۰.۵ USDT
+
+برداشت پاداش به زودی به ربات اضافه میشود`, user.ReferralReward)
 	message := tgbotapi.NewMessage(msg.Chat.ID, msgText)
 	message.ParseMode = "Markdown"
 	bot.Send(message)
