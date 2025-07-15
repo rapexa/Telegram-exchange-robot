@@ -256,6 +256,15 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 			var inviter models.User
 			if err := db.First(&inviter, *user.ReferrerID).Error; err == nil {
 				db.Model(&inviter).UpdateColumn("referral_reward", gorm.Expr("referral_reward + ?", 0.5))
+				// Notify inviter about reward
+				joinedUser := user.Username
+				var notifyMsg string
+				if joinedUser != "" {
+					notifyMsg = fmt.Sprintf("🎉 زیرمجموعه شما ثبت‌نام خود را تکمیل کرد!\n👤 نام کاربری: @%s\n💰 ۰.۵ USDT به پاداش شما اضافه شد و قابل برداشت است.", joinedUser)
+				} else {
+					notifyMsg = fmt.Sprintf("🎉 زیرمجموعه شما ثبت‌نام خود را تکمیل کرد!\n👤 آیدی عددی: %d\n💰 ۰.۵ USDT به پاداش شما اضافه شد و قابل برداشت است.", user.TelegramID)
+				}
+				bot.Send(tgbotapi.NewMessage(inviter.TelegramID, notifyMsg))
 			}
 		}
 
@@ -326,10 +335,12 @@ func handleStart(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 			var inviter models.User
 			if err := db.First(&inviter, *referrerID).Error; err == nil {
 				joinedUser := msg.From.UserName
-				if joinedUser == "" {
-					joinedUser = fmt.Sprintf("%d", userID)
+				var notifyMsg string
+				if joinedUser != "" {
+					notifyMsg = fmt.Sprintf("🎉 یک کاربر جدید با لینک دعوت شما وارد ربات شد!\n👤 نام کاربری: @%s", joinedUser)
+				} else {
+					notifyMsg = fmt.Sprintf("🎉 یک کاربر جدید با لینک دعوت شما وارد ربات شد!\n👤 آیدی عددی: %d", userID)
 				}
-				notifyMsg := fmt.Sprintf("🎉 یک کاربر جدید با لینک دعوت شما وارد ربات شد!\n👤 نام کاربری: @%s", joinedUser)
 				bot.Send(tgbotapi.NewMessage(inviter.TelegramID, notifyMsg))
 			}
 		}
@@ -574,7 +585,7 @@ func handleSubmenuActions(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Messa
 		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "💵 منوی برداشت:\n\nاین قابلیت به زودی اضافه خواهد شد."))
 	case "📋 تاریخچه":
 		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "📋 تاریخچه تراکنش‌ها:\n\nاین قابلیت به زودی اضافه خواهد شد."))
-	case "�� واریز USDT":
+	case "💳 واریز USDT":
 		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "💳 منوی واریز USDT:\n\nاین قابلیت به زودی اضافه خواهد شد."))
 	case "🔗 لینک رفرال":
 		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "🔗 لینک رفرال شما:\n\nاین قابلیت به زودی اضافه خواهد شد."))
@@ -583,7 +594,8 @@ func handleSubmenuActions(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Messa
 	case "📈 آمار شخصی":
 		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "📈 آمار شخصی شما:\n\nاین قابلیت به زودی اضافه خواهد شد."))
 	case "👥 زیرمجموعه‌ها":
-		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "👥 لیست زیرمجموعه‌ها:\n\nاین قابلیت به زودی اضافه خواهد شد."))
+		showReferralList(bot, db, msg)
+		return
 	default:
 		showMainMenu(bot, msg.Chat.ID)
 	}
@@ -834,6 +846,42 @@ func handleReward(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 هر زیرمجموعه ثبت‌نام شده: ۰.۵ USDT
 
 برای برداشت پاداش، به پشتیبانی پیام دهید.`, user.ReferralReward)
+
+	message := tgbotapi.NewMessage(msg.Chat.ID, msgText)
+	message.ParseMode = "Markdown"
+	bot.Send(message)
+}
+
+func showReferralList(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
+	userID := int64(msg.From.ID)
+	user, err := getUserByTelegramID(db, userID)
+	if err != nil || user == nil {
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "کاربر یافت نشد."))
+		return
+	}
+
+	var referrals []models.User
+	db.Where("referrer_id = ?", user.ID).Find(&referrals)
+
+	if len(referrals) == 0 {
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "شما هنوز هیچ زیرمجموعه‌ای ندارید."))
+		return
+	}
+
+	msgText := "👥 *لیست زیرمجموعه‌های شما:*\n"
+	for i, ref := range referrals {
+		var name string
+		if ref.Username != "" {
+			name = "@" + ref.Username
+		} else {
+			name = fmt.Sprintf("%d", ref.TelegramID)
+		}
+		status := "❌ ناتمام"
+		if ref.Registered {
+			status = "✅ ثبت‌نام شده"
+		}
+		msgText += fmt.Sprintf("%d. %s - %s\n", i+1, name, status)
+	}
 
 	message := tgbotapi.NewMessage(msg.Chat.ID, msgText)
 	message.ParseMode = "Markdown"
