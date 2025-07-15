@@ -255,14 +255,13 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 		if user != nil && user.ReferrerID != nil {
 			var inviter models.User
 			if err := db.First(&inviter, *user.ReferrerID).Error; err == nil {
-				db.Model(&inviter).UpdateColumn("referral_reward", gorm.Expr("referral_reward + ?", 0.5))
-				// Notify inviter about reward
+				// Notify inviter about registration completion (no reward)
 				joinedUser := user.Username
 				var notifyMsg string
 				if joinedUser != "" {
-					notifyMsg = fmt.Sprintf("🎉 زیرمجموعه شما ثبت‌نام خود را تکمیل کرد!\n👤 نام کاربری: @%s\n💰 ۰.۵ USDT به پاداش شما اضافه شد و قابل برداشت است.", joinedUser)
+					notifyMsg = fmt.Sprintf("🎉 زیرمجموعه شما ثبت‌نام خود را تکمیل کرد!\n👤 نام کاربری: @%s", joinedUser)
 				} else {
-					notifyMsg = fmt.Sprintf("🎉 زیرمجموعه شما ثبت‌نام خود را تکمیل کرد!\n👤 آیدی عددی: %d\n💰 ۰.۵ USDT به پاداش شما اضافه شد و قابل برداشت است.", user.TelegramID)
+					notifyMsg = fmt.Sprintf("🎉 زیرمجموعه شما ثبت‌نام خود را تکمیل کرد!\n👤 آیدی عددی: %d", user.TelegramID)
 				}
 				bot.Send(tgbotapi.NewMessage(inviter.TelegramID, notifyMsg))
 			}
@@ -832,21 +831,8 @@ func handleReferralLink(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 
 // Handler for 'دریافت پاداش'
 func handleReward(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
-	userID := int64(msg.From.ID)
-	user, err := getUserByTelegramID(db, userID)
-	if err != nil || user == nil {
-		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "کاربر یافت نشد. لطفاً ابتدا ثبت‌نام کنید."))
-		return
-	}
-
-	msgText := fmt.Sprintf(`💰 *موجودی پاداش شما:*
-
-%.2f USDT
-
-هر زیرمجموعه ثبت‌نام شده: ۰.۵ USDT
-
-برداشت پاداش به زودی به ربات اضافه میشود`, user.ReferralReward)
-
+	// Reward system is currently disabled
+	msgText := `❌ سیستم پاداش در حال حاضر فعال نیست و به زودی منطق جدیدی برای آن اضافه خواهد شد.`
 	message := tgbotapi.NewMessage(msg.Chat.ID, msgText)
 	message.ParseMode = "Markdown"
 	bot.Send(message)
