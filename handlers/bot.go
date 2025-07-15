@@ -320,6 +320,20 @@ func handleStart(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ خطا در ایجاد کاربر. لطفاً دوباره تلاش کنید."))
 			return
 		}
+
+		// --- Notify inviter if joined with referral ---
+		if referrerID != nil {
+			var inviter models.User
+			if err := db.First(&inviter, *referrerID).Error; err == nil {
+				joinedUser := msg.From.UserName
+				if joinedUser == "" {
+					joinedUser = fmt.Sprintf("%d", userID)
+				}
+				notifyMsg := fmt.Sprintf("🎉 یک کاربر جدید با لینک دعوت شما وارد ربات شد!\n👤 نام کاربری: @%s", joinedUser)
+				bot.Send(tgbotapi.NewMessage(inviter.TelegramID, notifyMsg))
+			}
+		}
+
 		// Start registration for new user
 		setRegState(userID, "full_name")
 		regTemp.Lock()
@@ -560,7 +574,7 @@ func handleSubmenuActions(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Messa
 		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "💵 منوی برداشت:\n\nاین قابلیت به زودی اضافه خواهد شد."))
 	case "📋 تاریخچه":
 		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "📋 تاریخچه تراکنش‌ها:\n\nاین قابلیت به زودی اضافه خواهد شد."))
-	case "💳 واریز USDT":
+	case "�� واریز USDT":
 		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "💳 منوی واریز USDT:\n\nاین قابلیت به زودی اضافه خواهد شد."))
 	case "🔗 لینک رفرال":
 		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "🔗 لینک رفرال شما:\n\nاین قابلیت به زودی اضافه خواهد شد."))
