@@ -250,6 +250,15 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 			return true
 		}
 
+		// --- Referral reward logic ---
+		user, _ := getUserByTelegramID(db, userID)
+		if user != nil && user.ReferrerID != nil {
+			var inviter models.User
+			if err := db.First(&inviter, *user.ReferrerID).Error; err == nil {
+				db.Model(&inviter).UpdateColumn("referral_reward", gorm.Expr("referral_reward + ?", 0.5))
+			}
+		}
+
 		logInfo("Registration completed successfully for user %d", userID)
 		clearRegState(userID)
 
@@ -280,6 +289,20 @@ func handleStart(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 	userID := int64(msg.From.ID)
 	user, err := getUserByTelegramID(db, userID)
 
+	// Parse referrer from /start <referrer_id>
+	var referrerID *uint = nil
+	if msg.IsCommand() && msg.Command() == "start" && msg.CommandArguments() != "" {
+		refArg := msg.CommandArguments()
+		var refTGID int64
+		_, err := fmt.Sscanf(refArg, "%d", &refTGID)
+		if err == nil && refTGID != userID {
+			refUser, _ := getUserByTelegramID(db, refTGID)
+			if refUser != nil {
+				referrerID = &refUser.ID
+			}
+		}
+	}
+
 	// Debug logging
 	logDebug("User ID: %d, Error: %v, User: %+v", userID, err, user)
 
@@ -290,6 +313,7 @@ func handleStart(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 			Username:   msg.From.UserName,
 			TelegramID: userID,
 			Registered: false,
+			ReferrerID: referrerID,
 		}
 		if err := db.Create(newUser).Error; err != nil {
 			logError("Error creating user: %v", err)
@@ -485,6 +509,10 @@ func handleMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 		showStatsMenu(bot, msg.Chat.ID)
 	case "🆘 پشتیبانی":
 		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "برای پشتیبانی با ادمین تماس بگیرید: @YourAdminUsername"))
+	case "🔗 لینک رفرال":
+		handleReferralLink(bot, db, msg)
+	case "💰 دریافت پاداش":
+		handleReward(bot, db, msg)
 	case "⬅️ بازگشت":
 		showMainMenu(bot, msg.Chat.ID)
 	default:
@@ -744,4 +772,56 @@ func handleFixUser(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 	regTemp.m[userID] = make(map[string]string)
 	regTemp.Unlock()
 	bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "لطفاً نام و نام خانوادگی خود را وارد کنید:"))
+}
+
+// Handler for 'لینک رفرال'
+func handleReferralLink(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
+	userID := int64(msg.From.ID)
+	user, err := getUserByTelegramID(db, userID)
+	if err != nil || user == nil {
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "کاربر یافت نشد. لطفاً ابتدا ثبت‌نام کنید."))
+		return
+	}
+
+	// Get bot username
+	botUser := bot.Self.UserName
+	refLink := "https://t.me/" + botUser + "?start=" + fmt.Sprintf("%d", user.TelegramID)
+
+	// Count successful referrals
+	var count int64
+	db.Model(&models.User{}).Where("referrer_id = ? AND registered = ?", user.ID, true).Count(&count)
+
+	msgText := fmt.Sprintf(`🔗 *لینک رفرال اختصاصی شما:*
+
+[کلیک کنید](%s)
+
+هر کاربری که با این لینک ثبت‌نام کند، زیرمجموعه شما خواهد شد و به ازای هر ثبت‌نام کامل، ۰.۵ USDT پاداش می‌گیرید.
+
+👥 *تعداد زیرمجموعه‌های ثبت‌نام شده:* %d`, refLink, count)
+
+	message := tgbotapi.NewMessage(msg.Chat.ID, msgText)
+	message.ParseMode = "Markdown"
+	bot.Send(message)
+}
+
+// Handler for 'دریافت پاداش'
+func handleReward(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
+	userID := int64(msg.From.ID)
+	user, err := getUserByTelegramID(db, userID)
+	if err != nil || user == nil {
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "کاربر یافت نشد. لطفاً ابتدا ثبت‌نام کنید."))
+		return
+	}
+
+	msgText := fmt.Sprintf(`💰 *موجودی پاداش شما:*
+
+%.2f USDT
+
+هر زیرمجموعه ثبت‌نام شده: ۰.۵ USDT
+
+برای برداشت پاداش، به پشتیبانی پیام دهید.`, user.ReferralReward)
+
+	message := tgbotapi.NewMessage(msg.Chat.ID, msgText)
+	message.ParseMode = "Markdown"
+	bot.Send(message)
 }

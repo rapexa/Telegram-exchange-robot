@@ -21,5 +21,8 @@ CREATE TABLE IF NOT EXISTS users (
     full_name VARCHAR(255),
     sheba VARCHAR(32),
     card_number VARCHAR(32),
-    registered BOOL DEFAULT FALSE
+    registered BOOL DEFAULT FALSE,
+    referrer_id BIGINT NULL,
+    referral_reward DOUBLE DEFAULT 0,
+    FOREIGN KEY (referrer_id) REFERENCES users(id)
 ); 

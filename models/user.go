@@ -17,6 +17,9 @@ type User struct {
 	Sheba      string `gorm:"size:32"`
 	CardNumber string `gorm:"size:32"`
 	Registered bool   `gorm:"default:false"`
+
+	ReferrerID     *uint   `gorm:"index"`     // ID of the user who referred this user (nullable)
+	ReferralReward float64 `gorm:"default:0"` // Total earned from referrals
 }
 
 func logDebug(format string, v ...interface{}) {
