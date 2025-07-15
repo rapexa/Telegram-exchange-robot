@@ -868,7 +868,7 @@ func showReferralList(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) 
 		return
 	}
 
-	msgText := "👥 *لیست زیرمجموعه‌های شما:*\n"
+	msgText := "👥 <b>لیست زیرمجموعه‌های شما:</b>\n"
 	for i, ref := range referrals {
 		var name string
 		if ref.Username != "" {
@@ -880,10 +880,10 @@ func showReferralList(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) 
 		if ref.Registered {
 			status = "✅ ثبت‌نام شده"
 		}
-		msgText += fmt.Sprintf("%d. %s - %s\n", i+1, name, status)
+		msgText += fmt.Sprintf("%d. <code>%s</code> - %s\n", i+1, name, status)
 	}
 
 	message := tgbotapi.NewMessage(msg.Chat.ID, msgText)
-	message.ParseMode = "Markdown"
+	message.ParseMode = "HTML"
 	bot.Send(message)
 }
