@@ -842,8 +842,6 @@ func handleReward(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 
 %.2f USDT
 
-هر زیرمجموعه ثبت‌نام شده: ۰.۵ USDT
-
 برداشت پاداش به زودی به ربات اضافه میشود`, user.ReferralReward)
 	message := tgbotapi.NewMessage(msg.Chat.ID, msgText)
 	message.ParseMode = "Markdown"
