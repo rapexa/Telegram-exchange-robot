@@ -191,7 +191,13 @@ func parseUSDTAmount(val string) float64 {
 		fmt.Printf("[DEBUG] parseUSDTAmount: invalid value input: %s\n", val)
 		return 0
 	}
-	amount := intVal / 1e6
-	fmt.Printf("[DEBUG] parseUSDTAmount: raw value=%s, float=%.0f, amount=%.6f\n", val, intVal, amount)
+	var amount float64
+	if intVal >= 1e15 { // 18 decimals (e.g. 1e18 for 1 USDT)
+		amount = intVal / 1e18
+		fmt.Printf("[DEBUG] parseUSDTAmount: raw value=%s, float=%.0f, amount=%.6f (18 decimals)\n", val, intVal, amount)
+	} else {
+		amount = intVal / 1e6
+		fmt.Printf("[DEBUG] parseUSDTAmount: raw value=%s, float=%.0f, amount=%.6f (6 decimals)\n", val, intVal, amount)
+	}
 	return amount
 }
