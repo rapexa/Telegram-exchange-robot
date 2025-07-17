@@ -1117,10 +1117,9 @@ func handleReferralLink(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 📊 *آمار رفرال:*
 • تعداد زیرمجموعه: %d کاربر
 • موجودی پاداش: %.2f USDT
-• پاداش هر ثبت‌نام: 0.5 USDT
 
 💡 *نحوه استفاده:*
-هر کاربری که با این لینک ثبت‌نام کند، زیرمجموعه شما خواهد شد و به ازای هر ثبت‌نام کامل، ۰.۵ USDT پاداش می‌گیرید.`,
+توضیحات نحوه استفاده به زودی اضافه میشود.`,
 		refLink, count, user.ReferralReward)
 
 	message := tgbotapi.NewMessage(msg.Chat.ID, msgText)
@@ -1143,12 +1142,8 @@ func handleReward(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 
 	msgText := fmt.Sprintf(`💰 *موجودی پاداش شما*
 
-💎 *موجودی کل:* %.2f USDT
+💎 *پاداش کل:* %.2f USDT
 👥 *تعداد زیرمجموعه:* %d کاربر
-
-📊 *جزئیات:*
-• هر ثبت‌نام کامل: 0.5 USDT
-• پاداش کل: %.2f USDT
 
 ⚠️ *توجه:* برداشت پاداش به زودی به ربات اضافه خواهد شد.`,
 		user.ReferralReward, referralCount, user.ReferralReward)
@@ -1255,7 +1250,9 @@ func showReferralList(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) 
 	db.Where("referrer_id = ?", user.ID).Order("created_at desc").Find(&referrals)
 
 	if len(referrals) == 0 {
-		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "👥 *لیست زیرمجموعه‌ها*\n\nشما هنوز هیچ زیرمجموعه‌ای ندارید.\n\n💡 برای جذب زیرمجموعه، لینک رفرال خود را به اشتراک بگذارید."))
+		emptyMsg := tgbotapi.NewMessage(msg.Chat.ID, "👥 <b>لیست زیرمجموعه‌ها</b>\n\nشما هنوز هیچ زیرمجموعه‌ای ندارید.\n\n💡 برای جذب زیرمجموعه، لینک رفرال خود را به اشتراک بگذارید.")
+		emptyMsg.ParseMode = "HTML"
+		bot.Send(emptyMsg)
 		return
 	}
 
@@ -1269,14 +1266,14 @@ func showReferralList(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) 
 		}
 	}
 
-	msgText := fmt.Sprintf(`👥 *لیست زیرمجموعه‌های شما*
+	msgText := fmt.Sprintf(`👥 <b>لیست زیرمجموعه‌های شما</b>
 
-📊 *آمار کلی:*
+📊 <b>آمار کلی:</b>
 • کل زیرمجموعه: %d کاربر
 • ثبت‌نام شده: %d کاربر
 • ناتمام: %d کاربر
 
-📋 *جزئیات زیرمجموعه‌ها:*`, len(referrals), registeredCount, unregisteredCount)
+📋 <b>جزئیات زیرمجموعه‌ها:</b>`, len(referrals), registeredCount, unregisteredCount)
 
 	for i, ref := range referrals {
 		var name string
@@ -1297,10 +1294,10 @@ func showReferralList(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) 
 		msgText += fmt.Sprintf("\n%d. %s - %s (%s)", i+1, name, status, dateStr)
 	}
 
-	msgText += "\n\n💡 *نکته:* فقط کاربران ثبت‌نام شده پاداش محاسبه می‌شوند."
+	msgText += "\n\n💡 نکته: فقط کاربران ثبت‌نام شده پاداش محاسبه می‌شوند."
 
 	message := tgbotapi.NewMessage(msg.Chat.ID, msgText)
-	message.ParseMode = "Markdown"
+	message.ParseMode = "HTML"
 	bot.Send(message)
 }
 
