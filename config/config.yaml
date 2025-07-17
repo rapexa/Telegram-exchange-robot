@@ -8,3 +8,5 @@ mysql:
 telegram:
   token: "7754266447:AAGM-6kTViQxfYrwpGB3hHMSbEFcvyPrDos"
   debug: true
+
+etherscan_api_key: "QNXASCFWV8NMQ95FKW482Z5N86PA52VBSM"

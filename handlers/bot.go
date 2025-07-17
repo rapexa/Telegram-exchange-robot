@@ -627,7 +627,8 @@ func handleSubmenuActions(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Messa
 	case "💵 برداشت":
 		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "💵 منوی برداشت:\n\nاین قابلیت به زودی اضافه خواهد شد."))
 	case "📋 تاریخچه":
-		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "📋 تاریخچه تراکنش‌ها:\n\nاین قابلیت به زودی اضافه خواهد شد."))
+		showTransactionHistory(bot, db, msg)
+		return
 	case "💳 واریز USDT":
 		handleWalletDeposit(bot, db, msg)
 		return
@@ -969,6 +970,48 @@ func showReferralList(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) 
 	}
 
 	message := tgbotapi.NewMessage(msg.Chat.ID, msgText)
+	message.ParseMode = "HTML"
+	bot.Send(message)
+}
+
+func showTransactionHistory(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
+	userID := int64(msg.From.ID)
+	user, err := getUserByTelegramID(db, userID)
+	if err != nil || user == nil {
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "کاربر یافت نشد."))
+		return
+	}
+
+	var txs []models.Transaction
+	db.Where("user_id = ?", user.ID).Order("created_at desc").Limit(10).Find(&txs)
+
+	if len(txs) == 0 {
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "هیچ تراکنشی ثبت نشده است."))
+		return
+	}
+
+	history := "📋 <b>تاریخچه واریز و برداشت:</b>\n"
+	for i, tx := range txs {
+		typeFa := "واریز"
+		if tx.Type == "withdraw" {
+			typeFa = "برداشت"
+		}
+		networkFa := ""
+		if tx.Network == "ERC20" {
+			networkFa = "ERC20"
+		} else if tx.Network == "BEP20" {
+			networkFa = "BEP20"
+		}
+		statusFa := "در انتظار"
+		if tx.Status == "confirmed" {
+			statusFa = "تایید شده"
+		} else if tx.Status == "failed" {
+			statusFa = "ناموفق"
+		}
+		history += fmt.Sprintf("%d. <b>%s %s</b> - <b>%.2f USDT</b> - %s\n", i+1, typeFa, networkFa, tx.Amount, statusFa)
+	}
+
+	message := tgbotapi.NewMessage(msg.Chat.ID, history)
 	message.ParseMode = "HTML"
 	bot.Send(message)
 }

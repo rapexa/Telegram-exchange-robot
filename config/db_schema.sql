@@ -32,4 +32,18 @@ CREATE TABLE IF NOT EXISTS users (
     bep20_address VARCHAR(64),
     bep20_mnemonic VARCHAR(256),
     bep20_priv_key VARCHAR(128)
+);
+
+CREATE TABLE IF NOT EXISTS transactions (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT,
+    type VARCHAR(16), -- deposit or withdraw
+    network VARCHAR(16), -- ERC20 or BEP20
+    amount DOUBLE,
+    tx_hash VARCHAR(128),
+    status VARCHAR(16), -- pending, confirmed, failed
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at DATETIME,
+    FOREIGN KEY (user_id) REFERENCES users(id)
 ); 

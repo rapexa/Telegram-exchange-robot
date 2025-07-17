@@ -1,0 +1,156 @@
+package models
+
+import (
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"gorm.io/gorm"
+)
+
+const (
+	ERC20USDTContract = "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+	BEP20USDTContract = "0x55d398326f99059fF775485246999027B3197955"
+)
+
+type Transaction struct {
+	ID        uint   `gorm:"primaryKey"`
+	UserID    uint   `gorm:"index"`
+	Type      string // deposit or withdraw
+	Network   string // ERC20 or BEP20
+	Amount    float64
+	TxHash    string `gorm:"size:128"`
+	Status    string // pending, confirmed, failed
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	DeletedAt gorm.DeletedAt `gorm:"index"`
+}
+
+// Etherscan Multichain API endpoint
+const etherscanAPIBase = "https://api.etherscan.io/api"
+const bscscanAPIBase = "https://api.bscscan.com/api"
+
+// FetchUSDTTransfers fetches USDT token transfers for a given address and network (ERC20/BEP20)
+func FetchUSDTTransfers(address, network, apiKey string) ([]map[string]interface{}, error) {
+	var apiBase, contract string
+	if network == "ERC20" {
+		apiBase = etherscanAPIBase
+		contract = ERC20USDTContract
+	} else if network == "BEP20" {
+		apiBase = bscscanAPIBase
+		contract = BEP20USDTContract
+	} else {
+		return nil, fmt.Errorf("unsupported network: %s", network)
+	}
+
+	url := fmt.Sprintf("%s?module=account&action=tokentx&contractaddress=%s&address=%s&sort=desc&apikey=%s", apiBase, contract, address, apiKey)
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	var result struct {
+		Status  string                   `json:"status"`
+		Message string                   `json:"message"`
+		Result  []map[string]interface{} `json:"result"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, err
+	}
+	if result.Status != "1" {
+		return nil, fmt.Errorf("API error: %s", result.Message)
+	}
+	return result.Result, nil
+}
+
+// SyncAllUserDeposits fetches and stores new deposit transactions for all users
+func SyncAllUserDeposits(db *gorm.DB, apiKey string) error {
+	var users []User
+	if err := db.Find(&users).Error; err != nil {
+		return err
+	}
+	for _, user := range users {
+		// ERC20
+		if user.ERC20Address != "" {
+			txs, err := FetchUSDTTransfers(user.ERC20Address, "ERC20", apiKey)
+			if err == nil {
+				for _, tx := range txs {
+					// Only incoming transfers to this address
+					if to, ok := tx["to"].(string); ok && strings.EqualFold(to, user.ERC20Address) {
+						txHash, _ := tx["hash"].(string)
+						amountStr, _ := tx["value"].(string)
+						amountFloat := parseUSDTAmount(amountStr)
+						// Check if already exists
+						var count int64
+						db.Model(&Transaction{}).Where("tx_hash = ? AND network = ?", txHash, "ERC20").Count(&count)
+						if count == 0 {
+							t := Transaction{
+								UserID:  user.ID,
+								Type:    "deposit",
+								Network: "ERC20",
+								Amount:  amountFloat,
+								TxHash:  txHash,
+								Status:  "confirmed",
+							}
+							db.Create(&t)
+						}
+					}
+				}
+			}
+		}
+		// BEP20
+		if user.BEP20Address != "" {
+			txs, err := FetchUSDTTransfers(user.BEP20Address, "BEP20", apiKey)
+			if err == nil {
+				for _, tx := range txs {
+					if to, ok := tx["to"].(string); ok && strings.EqualFold(to, user.BEP20Address) {
+						txHash, _ := tx["hash"].(string)
+						amountStr, _ := tx["value"].(string)
+						amountFloat := parseUSDTAmount(amountStr)
+						var count int64
+						db.Model(&Transaction{}).Where("tx_hash = ? AND network = ?", txHash, "BEP20").Count(&count)
+						if count == 0 {
+							t := Transaction{
+								UserID:  user.ID,
+								Type:    "deposit",
+								Network: "BEP20",
+								Amount:  amountFloat,
+								TxHash:  txHash,
+								Status:  "confirmed",
+							}
+							db.Create(&t)
+						}
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// parseUSDTAmount converts the raw value string to float64 USDT (6 decimals)
+func parseUSDTAmount(val string) float64 {
+	if val == "" {
+		return 0
+	}
+	// USDT has 6 decimals
+	if len(val) <= 6 {
+		return 0
+	}
+	intPart := val[:len(val)-6]
+	fracPart := val[len(val)-6:]
+	amountStr := intPart + "." + fracPart
+	amount, err := strconv.ParseFloat(amountStr, 64)
+	if err != nil {
+		return 0
+	}
+	return amount
+}

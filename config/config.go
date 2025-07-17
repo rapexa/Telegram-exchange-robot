@@ -24,8 +24,9 @@ type TelegramConfig struct {
 }
 
 type Config struct {
-	MySQL    MySQLConfig
-	Telegram TelegramConfig
+	MySQL           MySQLConfig
+	Telegram        TelegramConfig
+	EtherscanAPIKey string
 }
 
 func LoadConfig() (*Config, error) {
@@ -41,5 +42,6 @@ func LoadConfig() (*Config, error) {
 	if err := viper.Unmarshal(&cfg); err != nil {
 		return nil, err
 	}
+	cfg.EtherscanAPIKey = viper.GetString("etherscan_api_key")
 	return &cfg, nil
 }
