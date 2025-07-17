@@ -121,6 +121,14 @@ func main() {
 	logInfo("🚀 Bot is now running and ready to receive messages!")
 	logInfo(separator)
 
+	// Run blockchain deposit sync once at startup
+	err = models.SyncAllUserDeposits(db, cfg.EtherscanAPIKey)
+	if err != nil {
+		logError("Initial blockchain sync error: %v", err)
+	} else {
+		logInfo("Initial blockchain deposit sync completed successfully")
+	}
+
 	// Start blockchain deposit sync goroutine (every 5 minutes)
 	go func() {
 		for {
