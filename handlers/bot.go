@@ -287,7 +287,7 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 		message.ParseMode = "Markdown"
 		bot.Send(message)
 
-		showMainMenu(bot, msg.Chat.ID)
+		showMainMenu(bot, db, msg.Chat.ID, userID)
 		return true
 	}
 	return false
@@ -513,21 +513,78 @@ func handleStart(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 
 	// User is already registered, show their information and main menu
 	logInfo("Showing info for registered user: %s", user.FullName)
-	showUserInfo(bot, msg.Chat.ID, user)
-	showMainMenu(bot, msg.Chat.ID)
+	showUserInfo(bot, db, msg.Chat.ID, user)
+	showMainMenu(bot, db, msg.Chat.ID, userID)
 }
 
-func showUserInfo(bot *tgbotapi.BotAPI, chatID int64, user *models.User) {
+func showUserInfo(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, user *models.User) {
+	// Calculate USDT balances for each network
+	var erc20Balance, bep20Balance float64
+
+	// Calculate ERC20 balance (deposits - withdrawals)
+	var erc20Deposits, erc20Withdrawals float64
+	db.Model(&models.Transaction{}).
+		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "ERC20", "deposit", "confirmed").
+		Select("COALESCE(SUM(amount), 0)").
+		Scan(&erc20Deposits)
+	
+	db.Model(&models.Transaction{}).
+		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "ERC20", "withdraw", "confirmed").
+		Select("COALESCE(SUM(amount), 0)").
+		Scan(&erc20Withdrawals)
+	
+	erc20Balance = erc20Deposits - erc20Withdrawals
+
+	// Calculate BEP20 balance (deposits - withdrawals)
+	var bep20Deposits, bep20Withdrawals float64
+	db.Model(&models.Transaction{}).
+		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "BEP20", "deposit", "confirmed").
+		Select("COALESCE(SUM(amount), 0)").
+		Scan(&bep20Deposits)
+	
+	db.Model(&models.Transaction{}).
+		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "BEP20", "withdraw", "confirmed").
+		Select("COALESCE(SUM(amount), 0)").
+		Scan(&bep20Withdrawals)
+	
+	bep20Balance = bep20Deposits - bep20Withdrawals
+
+	// Calculate total balance
+	totalBalance := erc20Balance + bep20Balance
+
+	// Count successful referrals
+	var referralCount int64
+	db.Model(&models.User{}).Where("referrer_id = ? AND registered = ?", user.ID, true).Count(&referralCount)
+
+	// Count total transactions
+	var totalTransactions int64
+	db.Model(&models.Transaction{}).Where("user_id = ?", user.ID).Count(&totalTransactions)
+
 	info := fmt.Sprintf(`👤 *اطلاعات کاربر*
 
-📝 *نام و نام خانوادگی:* %s
-🆔 *نام کاربری:* @%s
-💳 *شماره کارت:* %s
-🏦 *شماره شبا:* %s
-✅ *وضعیت:* ثبت‌نام شده
+📝 *اطلاعات شخصی:*
+• نام و نام خانوادگی: %s
+• نام کاربری: @%s
+• شماره کارت: %s
+• شماره شبا: %s
+• وضعیت: ✅ ثبت‌نام شده
+
+💰 *موجودی کیف پول:*
+• موجودی کل: %.2f USDT
+• 🔵 ERC20 (اتریوم): %.2f USDT
+• 🟡 BEP20 (بایننس): %.2f USDT
+
+🎁 *آمار رفرال:*
+• موجودی پاداش: %.2f USDT
+• تعداد زیرمجموعه: %d کاربر
+
+📊 *آمار تراکنش:*
+• کل تراکنش‌ها: %d مورد
 
 🎉 *خوش آمدید!* حالا می‌توانید از تمام خدمات ربات استفاده کنید.`,
-		user.FullName, user.Username, user.CardNumber, user.Sheba)
+		user.FullName, user.Username, user.CardNumber, user.Sheba, 
+		totalBalance, erc20Balance, bep20Balance, 
+		user.ReferralReward, referralCount, totalTransactions)
 
 	message := tgbotapi.NewMessage(chatID, info)
 	message.ParseMode = "Markdown"
@@ -570,11 +627,11 @@ func handleMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 
 	switch msg.Text {
 	case "💰 کیف پول":
-		showWalletMenu(bot, msg.Chat.ID)
+		showWalletMenu(bot, db, msg.Chat.ID, userID)
 	case "🎁 پاداش":
-		showRewardsMenu(bot, msg.Chat.ID)
+		showRewardsMenu(bot, db, msg.Chat.ID, userID)
 	case "📊 آمار":
-		showStatsMenu(bot, msg.Chat.ID)
+		showStatsMenu(bot, db, msg.Chat.ID, userID)
 	case "🆘 پشتیبانی":
 		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "برای پشتیبانی با ادمین تماس بگیرید: @YourAdminUsername"))
 	case "🔗 لینک رفرال":
@@ -582,7 +639,7 @@ func handleMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 	case "💰 دریافت پاداش":
 		handleReward(bot, db, msg)
 	case "⬅️ بازگشت":
-		showMainMenu(bot, msg.Chat.ID)
+		showMainMenu(bot, db, msg.Chat.ID, userID)
 	default:
 		// Check if it's a submenu action
 		handleSubmenuActions(bot, db, msg)
@@ -633,20 +690,68 @@ func handleSubmenuActions(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Messa
 		handleWalletDeposit(bot, db, msg)
 		return
 	case "🔗 لینک رفرال":
-		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "🔗 لینک رفرال شما:\n\nاین قابلیت به زودی اضافه خواهد شد."))
+		handleReferralLink(bot, db, msg)
+		return
 	case "💰 دریافت پاداش":
-		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "💰 منوی دریافت پاداش:\n\nاین قابلیت به زودی اضافه خواهد شد."))
+		handleReward(bot, db, msg)
+		return
 	case "📈 آمار شخصی":
-		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "📈 آمار شخصی شما:\n\nاین قابلیت به زودی اضافه خواهد شد."))
+		showPersonalStats(bot, db, msg)
+		return
 	case "👥 زیرمجموعه‌ها":
 		showReferralList(bot, db, msg)
 		return
 	default:
-		showMainMenu(bot, msg.Chat.ID)
+		showMainMenu(bot, db, msg.Chat.ID, userID)
 	}
 }
 
-func showMainMenu(bot *tgbotapi.BotAPI, chatID int64) {
+func showMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64) {
+	// Get user to display summary
+	user, err := getUserByTelegramID(db, userID)
+	if err != nil || user == nil {
+		bot.Send(tgbotapi.NewMessage(chatID, "کاربر یافت نشد. لطفاً ابتدا ثبت‌نام کنید."))
+		return
+	}
+
+	// Calculate USDT balances for each network
+	var erc20Balance, bep20Balance float64
+
+	// Calculate ERC20 balance (deposits - withdrawals)
+	var erc20Deposits, erc20Withdrawals float64
+	db.Model(&models.Transaction{}).
+		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "ERC20", "deposit", "confirmed").
+		Select("COALESCE(SUM(amount), 0)").
+		Scan(&erc20Deposits)
+	
+	db.Model(&models.Transaction{}).
+		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "ERC20", "withdraw", "confirmed").
+		Select("COALESCE(SUM(amount), 0)").
+		Scan(&erc20Withdrawals)
+	
+	erc20Balance = erc20Deposits - erc20Withdrawals
+
+	// Calculate BEP20 balance (deposits - withdrawals)
+	var bep20Deposits, bep20Withdrawals float64
+	db.Model(&models.Transaction{}).
+		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "BEP20", "deposit", "confirmed").
+		Select("COALESCE(SUM(amount), 0)").
+		Scan(&bep20Deposits)
+	
+	db.Model(&models.Transaction{}).
+		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "BEP20", "withdraw", "confirmed").
+		Select("COALESCE(SUM(amount), 0)").
+		Scan(&bep20Withdrawals)
+	
+	bep20Balance = bep20Deposits - bep20Withdrawals
+
+	// Calculate total balance
+	totalBalance := erc20Balance + bep20Balance
+
+	// Count successful referrals
+	var referralCount int64
+	db.Model(&models.User{}).Where("referrer_id = ? AND registered = ?", user.ID, true).Count(&referralCount)
+
 	menu := tgbotapi.NewReplyKeyboard(
 		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("💰 کیف پول"),
@@ -664,20 +769,71 @@ func showMainMenu(bot *tgbotapi.BotAPI, chatID int64) {
 	menu.ResizeKeyboard = true
 	menu.OneTimeKeyboard = false
 
-	msg := tgbotapi.NewMessage(chatID, `🏠 *منوی اصلی*
+	// Create main menu message with summary
+	mainMsg := fmt.Sprintf(`🏠 *منوی اصلی*
 
-لطفاً یکی از گزینه‌های زیر را انتخاب کنید:
+👋 سلام %s!
 
+💰 *خلاصه موجودی:*
+• موجودی کل: %.2f USDT
+• موجودی پاداش: %.2f USDT
+• تعداد زیرمجموعه: %d کاربر
+
+💡 *گزینه‌های موجود:*
 💰 *کیف پول* - مدیریت موجودی و تراکنش‌ها
 🎁 *پاداش* - سیستم رفرال و پاداش‌ها
 📊 *آمار* - آمار شخصی و زیرمجموعه‌ها
-🆘 *پشتیبانی* - ارتباط با پشتیبانی`)
+🆘 *پشتیبانی* - ارتباط با پشتیبانی`, 
+		user.FullName, totalBalance, user.ReferralReward, referralCount)
+
+	msg := tgbotapi.NewMessage(chatID, mainMsg)
 	msg.ReplyMarkup = menu
 	msg.ParseMode = "Markdown"
 	bot.Send(msg)
 }
 
-func showWalletMenu(bot *tgbotapi.BotAPI, chatID int64) {
+func showWalletMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64) {
+	// Get user to calculate balances
+	user, err := getUserByTelegramID(db, userID)
+	if err != nil || user == nil {
+		bot.Send(tgbotapi.NewMessage(chatID, "کاربر یافت نشد. لطفاً ابتدا ثبت‌نام کنید."))
+		return
+	}
+
+	// Calculate USDT balances for each network
+	var erc20Balance, bep20Balance float64
+
+	// Calculate ERC20 balance (deposits - withdrawals)
+	var erc20Deposits, erc20Withdrawals float64
+	db.Model(&models.Transaction{}).
+		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "ERC20", "deposit", "confirmed").
+		Select("COALESCE(SUM(amount), 0)").
+		Scan(&erc20Deposits)
+	
+	db.Model(&models.Transaction{}).
+		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "ERC20", "withdraw", "confirmed").
+		Select("COALESCE(SUM(amount), 0)").
+		Scan(&erc20Withdrawals)
+	
+	erc20Balance = erc20Deposits - erc20Withdrawals
+
+	// Calculate BEP20 balance (deposits - withdrawals)
+	var bep20Deposits, bep20Withdrawals float64
+	db.Model(&models.Transaction{}).
+		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "BEP20", "deposit", "confirmed").
+		Select("COALESCE(SUM(amount), 0)").
+		Scan(&bep20Deposits)
+	
+	db.Model(&models.Transaction{}).
+		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "BEP20", "withdraw", "confirmed").
+		Select("COALESCE(SUM(amount), 0)").
+		Scan(&bep20Withdrawals)
+	
+	bep20Balance = bep20Deposits - bep20Withdrawals
+
+	// Calculate total balance
+	totalBalance := erc20Balance + bep20Balance
+
 	menu := tgbotapi.NewReplyKeyboard(
 		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("💵 برداشت"),
@@ -695,20 +851,40 @@ func showWalletMenu(bot *tgbotapi.BotAPI, chatID int64) {
 	menu.ResizeKeyboard = true
 	menu.OneTimeKeyboard = false
 
-	msg := tgbotapi.NewMessage(chatID, `💰 *منوی کیف پول*
+	// Create balance display message
+	balanceMsg := fmt.Sprintf(`💰 *منوی کیف پول*
 
-لطفاً یکی از گزینه‌های زیر را انتخاب کنید:
+💎 *موجودی کل:* %.2f USDT
 
+📊 *جزئیات موجودی:*
+• 🔵 *ERC20 (اتریوم):* %.2f USDT
+• 🟡 *BEP20 (بایننس):* %.2f USDT
+
+💡 *گزینه‌های موجود:*
 💵 *برداشت* - درخواست برداشت ریالی
 📋 *تاریخچه* - مشاهده تراکنش‌های قبلی
 💳 *واریز USDT* - واریز ارز دیجیتال
-⬅️ *بازگشت* - بازگشت به منوی اصلی`)
+⬅️ *بازگشت* - بازگشت به منوی اصلی`, 
+		totalBalance, erc20Balance, bep20Balance)
+
+	msg := tgbotapi.NewMessage(chatID, balanceMsg)
 	msg.ReplyMarkup = menu
 	msg.ParseMode = "Markdown"
 	bot.Send(msg)
 }
 
-func showRewardsMenu(bot *tgbotapi.BotAPI, chatID int64) {
+func showRewardsMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64) {
+	// Get user to display reward balance
+	user, err := getUserByTelegramID(db, userID)
+	if err != nil || user == nil {
+		bot.Send(tgbotapi.NewMessage(chatID, "کاربر یافت نشد. لطفاً ابتدا ثبت‌نام کنید."))
+		return
+	}
+
+	// Count successful referrals
+	var referralCount int64
+	db.Model(&models.User{}).Where("referrer_id = ? AND registered = ?", user.ID, true).Count(&referralCount)
+
 	menu := tgbotapi.NewReplyKeyboard(
 		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("🔗 لینک رفرال"),
@@ -723,19 +899,74 @@ func showRewardsMenu(bot *tgbotapi.BotAPI, chatID int64) {
 	menu.ResizeKeyboard = true
 	menu.OneTimeKeyboard = false
 
-	msg := tgbotapi.NewMessage(chatID, `🎁 *منوی پاداش*
+	// Create reward display message
+	rewardMsg := fmt.Sprintf(`🎁 *منوی پاداش*
 
-لطفاً یکی از گزینه‌های زیر را انتخاب کنید:
+💰 *موجودی پاداش:* %.2f USDT
+👥 *تعداد زیرمجموعه:* %d کاربر
 
+💡 *گزینه‌های موجود:*
 🔗 *لینک رفرال* - دریافت لینک معرفی
 💰 *دریافت پاداش* - انتقال پاداش به کیف پول
-⬅️ *بازگشت* - بازگشت به منوی اصلی`)
+⬅️ *بازگشت* - بازگشت به منوی اصلی`, 
+		user.ReferralReward, referralCount)
+
+	msg := tgbotapi.NewMessage(chatID, rewardMsg)
 	msg.ReplyMarkup = menu
 	msg.ParseMode = "Markdown"
 	bot.Send(msg)
 }
 
-func showStatsMenu(bot *tgbotapi.BotAPI, chatID int64) {
+func showStatsMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64) {
+	// Get user to display comprehensive stats
+	user, err := getUserByTelegramID(db, userID)
+	if err != nil || user == nil {
+		bot.Send(tgbotapi.NewMessage(chatID, "کاربر یافت نشد. لطفاً ابتدا ثبت‌نام کنید."))
+		return
+	}
+
+	// Calculate USDT balances for each network
+	var erc20Balance, bep20Balance float64
+
+	// Calculate ERC20 balance (deposits - withdrawals)
+	var erc20Deposits, erc20Withdrawals float64
+	db.Model(&models.Transaction{}).
+		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "ERC20", "deposit", "confirmed").
+		Select("COALESCE(SUM(amount), 0)").
+		Scan(&erc20Deposits)
+	
+	db.Model(&models.Transaction{}).
+		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "ERC20", "withdraw", "confirmed").
+		Select("COALESCE(SUM(amount), 0)").
+		Scan(&erc20Withdrawals)
+	
+	erc20Balance = erc20Deposits - erc20Withdrawals
+
+	// Calculate BEP20 balance (deposits - withdrawals)
+	var bep20Deposits, bep20Withdrawals float64
+	db.Model(&models.Transaction{}).
+		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "BEP20", "deposit", "confirmed").
+		Select("COALESCE(SUM(amount), 0)").
+		Scan(&bep20Deposits)
+	
+	db.Model(&models.Transaction{}).
+		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "BEP20", "withdraw", "confirmed").
+		Select("COALESCE(SUM(amount), 0)").
+		Scan(&bep20Withdrawals)
+	
+	bep20Balance = bep20Deposits - bep20Withdrawals
+
+	// Calculate total balance
+	totalBalance := erc20Balance + bep20Balance
+
+	// Count successful referrals
+	var referralCount int64
+	db.Model(&models.User{}).Where("referrer_id = ? AND registered = ?", user.ID, true).Count(&referralCount)
+
+	// Count total transactions
+	var totalTransactions int64
+	db.Model(&models.Transaction{}).Where("user_id = ?", user.ID).Count(&totalTransactions)
+
 	menu := tgbotapi.NewReplyKeyboard(
 		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("📈 آمار شخصی"),
@@ -750,13 +981,30 @@ func showStatsMenu(bot *tgbotapi.BotAPI, chatID int64) {
 	menu.ResizeKeyboard = true
 	menu.OneTimeKeyboard = false
 
-	msg := tgbotapi.NewMessage(chatID, `📊 *منوی آمار*
+	// Create comprehensive stats display message
+	statsMsg := fmt.Sprintf(`📊 *منوی آمار*
 
-لطفاً یکی از گزینه‌های زیر را انتخاب کنید:
+💎 *موجودی کل:* %.2f USDT
+💰 *موجودی پاداش:* %.2f USDT
 
+📈 *جزئیات موجودی:*
+• 🔵 *ERC20 (اتریوم):* %.2f USDT
+• 🟡 *BEP20 (بایننس):* %.2f USDT
+
+👥 *آمار رفرال:*
+• تعداد زیرمجموعه: %d کاربر
+• پاداش کل: %.2f USDT
+
+📋 *آمار تراکنش:*
+• کل تراکنش‌ها: %d مورد
+
+💡 *گزینه‌های موجود:*
 📈 *آمار شخصی* - آمار تراکنش‌ها و موجودی
 👥 *زیرمجموعه‌ها* - لیست کاربران معرفی شده
-⬅️ *بازگشت* - بازگشت به منوی اصلی`)
+⬅️ *بازگشت* - بازگشت به منوی اصلی`, 
+		totalBalance, user.ReferralReward, erc20Balance, bep20Balance, referralCount, user.ReferralReward, totalTransactions)
+
+	msg := tgbotapi.NewMessage(chatID, statsMsg)
 	msg.ReplyMarkup = menu
 	msg.ParseMode = "Markdown"
 	bot.Send(msg)
@@ -862,13 +1110,18 @@ func handleReferralLink(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 	var count int64
 	db.Model(&models.User{}).Where("referrer_id = ? AND registered = ?", user.ID, true).Count(&count)
 
-	msgText := fmt.Sprintf(`🔗 *لینک رفرال اختصاصی شما:*
+	msgText := fmt.Sprintf(`🔗 *لینک رفرال اختصاصی شما*
 
 %s
 
-هر کاربری که با این لینک ثبت‌نام کند، زیرمجموعه شما خواهد شد و به ازای هر ثبت‌نام کامل، ۰.۵ USDT پاداش می‌گیرید.
+📊 *آمار رفرال:*
+• تعداد زیرمجموعه: %d کاربر
+• موجودی پاداش: %.2f USDT
+• پاداش هر ثبت‌نام: 0.5 USDT
 
-👥 *تعداد زیرمجموعه‌های ثبت‌نام شده:* %d`, refLink, count)
+💡 *نحوه استفاده:*
+هر کاربری که با این لینک ثبت‌نام کند، زیرمجموعه شما خواهد شد و به ازای هر ثبت‌نام کامل، ۰.۵ USDT پاداش می‌گیرید.`,
+		refLink, count, user.ReferralReward)
 
 	message := tgbotapi.NewMessage(msg.Chat.ID, msgText)
 	message.ParseMode = "Markdown"
@@ -884,11 +1137,22 @@ func handleReward(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 		return
 	}
 
-	msgText := fmt.Sprintf(`💰 *موجودی پاداش شما:*
+	// Count successful referrals
+	var referralCount int64
+	db.Model(&models.User{}).Where("referrer_id = ? AND registered = ?", user.ID, true).Count(&referralCount)
 
-%.2f USDT
+	msgText := fmt.Sprintf(`💰 *موجودی پاداش شما*
 
-برداشت پاداش به زودی به ربات اضافه میشود`, user.ReferralReward)
+💎 *موجودی کل:* %.2f USDT
+👥 *تعداد زیرمجموعه:* %d کاربر
+
+📊 *جزئیات:*
+• هر ثبت‌نام کامل: 0.5 USDT
+• پاداش کل: %.2f USDT
+
+⚠️ *توجه:* برداشت پاداش به زودی به ربات اضافه خواهد شد.`,
+		user.ReferralReward, referralCount, user.ReferralReward)
+
 	message := tgbotapi.NewMessage(msg.Chat.ID, msgText)
 	message.ParseMode = "Markdown"
 	bot.Send(message)
@@ -901,6 +1165,37 @@ func handleWalletDeposit(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Messag
 		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "کاربر یافت نشد. لطفاً ابتدا ثبت‌نام کنید."))
 		return
 	}
+
+	// Calculate current balances
+	var erc20Balance, bep20Balance float64
+
+	// Calculate ERC20 balance (deposits - withdrawals)
+	var erc20Deposits, erc20Withdrawals float64
+	db.Model(&models.Transaction{}).
+		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "ERC20", "deposit", "confirmed").
+		Select("COALESCE(SUM(amount), 0)").
+		Scan(&erc20Deposits)
+	
+	db.Model(&models.Transaction{}).
+		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "ERC20", "withdraw", "confirmed").
+		Select("COALESCE(SUM(amount), 0)").
+		Scan(&erc20Withdrawals)
+	
+	erc20Balance = erc20Deposits - erc20Withdrawals
+
+	// Calculate BEP20 balance (deposits - withdrawals)
+	var bep20Deposits, bep20Withdrawals float64
+	db.Model(&models.Transaction{}).
+		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "BEP20", "deposit", "confirmed").
+		Select("COALESCE(SUM(amount), 0)").
+		Scan(&bep20Deposits)
+	
+	db.Model(&models.Transaction{}).
+		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "BEP20", "withdraw", "confirmed").
+		Select("COALESCE(SUM(amount), 0)").
+		Scan(&bep20Withdrawals)
+	
+	bep20Balance = bep20Deposits - bep20Withdrawals
 
 	// For old users: if missing wallet, generate and save
 	if user.ERC20Address == "" || user.BEP20Address == "" {
@@ -923,18 +1218,28 @@ func handleWalletDeposit(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Messag
 		}
 	}
 
-	msgText := `💳 <b>آدرس‌های واریز USDT شما:</b>
+	msgText := fmt.Sprintf(`💳 *آدرس‌های واریز USDT شما*
 
-<b>ERC20 (اتریوم):</b>
-<code>%s</code>
+💰 *موجودی فعلی:*
+• 🔵 ERC20 (اتریوم): %.2f USDT
+• 🟡 BEP20 (بایننس): %.2f USDT
 
-<b>BEP20 (بایننس اسمارت چین):</b>
-<code>%s</code>
+📥 *آدرس‌های واریز:*
 
-⚠️ فقط USDT را به شبکه صحیح واریز کنید. ارسال اشتباه باعث از دست رفتن دارایی می‌شود.`
-	msgText = fmt.Sprintf(msgText, user.ERC20Address, user.BEP20Address)
+🔵 *ERC20 (اتریوم):*
+\`%s\`
+
+🟡 *BEP20 (بایننس اسمارت چین):*
+\`%s\`
+
+⚠️ *هشدار مهم:*
+• فقط USDT را به شبکه صحیح واریز کنید
+• ارسال اشتباه باعث از دست رفتن دارایی می‌شود
+• حداقل واریز: 10 USDT`, 
+		erc20Balance, bep20Balance, user.ERC20Address, user.BEP20Address)
+
 	message := tgbotapi.NewMessage(msg.Chat.ID, msgText)
-	message.ParseMode = "HTML"
+	message.ParseMode = "Markdown"
 	bot.Send(message)
 }
 
@@ -947,30 +1252,55 @@ func showReferralList(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) 
 	}
 
 	var referrals []models.User
-	db.Where("referrer_id = ?", user.ID).Find(&referrals)
+	db.Where("referrer_id = ?", user.ID).Order("created_at desc").Find(&referrals)
 
 	if len(referrals) == 0 {
-		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "شما هنوز هیچ زیرمجموعه‌ای ندارید."))
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "👥 *لیست زیرمجموعه‌ها*\n\nشما هنوز هیچ زیرمجموعه‌ای ندارید.\n\n💡 برای جذب زیرمجموعه، لینک رفرال خود را به اشتراک بگذارید."))
 		return
 	}
 
-	msgText := "👥 <b>لیست زیرمجموعه‌های شما:</b>\n"
+	// Count registered vs unregistered
+	var registeredCount, unregisteredCount int64
+	for _, ref := range referrals {
+		if ref.Registered {
+			registeredCount++
+		} else {
+			unregisteredCount++
+		}
+	}
+
+	msgText := fmt.Sprintf(`👥 *لیست زیرمجموعه‌های شما*
+
+📊 *آمار کلی:*
+• کل زیرمجموعه: %d کاربر
+• ثبت‌نام شده: %d کاربر
+• ناتمام: %d کاربر
+
+📋 *جزئیات زیرمجموعه‌ها:*`, len(referrals), registeredCount, unregisteredCount)
+
 	for i, ref := range referrals {
 		var name string
 		if ref.Username != "" {
 			name = "@" + ref.Username
 		} else {
-			name = fmt.Sprintf("%d", ref.TelegramID)
+			name = fmt.Sprintf("ID: %d", ref.TelegramID)
 		}
+
 		status := "❌ ناتمام"
 		if ref.Registered {
 			status = "✅ ثبت‌نام شده"
 		}
-		msgText += fmt.Sprintf("%d. <code>%s</code> - %s\n", i+1, name, status)
+
+		// Format registration date
+		dateStr := ref.CreatedAt.Format("02/01/2006")
+
+		msgText += fmt.Sprintf("\n%d. %s - %s (%s)", i+1, name, status, dateStr)
 	}
 
+	msgText += "\n\n💡 *نکته:* فقط کاربران ثبت‌نام شده پاداش محاسبه می‌شوند."
+
 	message := tgbotapi.NewMessage(msg.Chat.ID, msgText)
-	message.ParseMode = "HTML"
+	message.ParseMode = "Markdown"
 	bot.Send(message)
 }
 
@@ -986,32 +1316,160 @@ func showTransactionHistory(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Mes
 	db.Where("user_id = ?", user.ID).Order("created_at desc").Limit(10).Find(&txs)
 
 	if len(txs) == 0 {
-		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "هیچ تراکنشی ثبت نشده است."))
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "📋 *تاریخچه تراکنش‌ها*\n\nهیچ تراکنشی ثبت نشده است.\n\n💡 برای مشاهده تراکنش‌ها، ابتدا باید واریز یا برداشتی انجام دهید."))
 		return
 	}
 
-	history := "📋 <b>تاریخچه واریز و برداشت:</b>\n"
-	for i, tx := range txs {
-		typeFa := "واریز"
-		if tx.Type == "withdraw" {
-			typeFa = "برداشت"
+	// Calculate summary statistics
+	var totalDeposits, totalWithdrawals float64
+	var depositCount, withdrawCount int64
+
+	for _, tx := range txs {
+		if tx.Type == "deposit" {
+			totalDeposits += tx.Amount
+			depositCount++
+		} else if tx.Type == "withdraw" {
+			totalWithdrawals += tx.Amount
+			withdrawCount++
 		}
-		networkFa := ""
-		if tx.Network == "ERC20" {
-			networkFa = "ERC20"
-		} else if tx.Network == "BEP20" {
-			networkFa = "BEP20"
-		}
-		statusFa := "در انتظار"
-		if tx.Status == "confirmed" {
-			statusFa = "تایید شده"
-		} else if tx.Status == "failed" {
-			statusFa = "ناموفق"
-		}
-		history += fmt.Sprintf("%d. <b>%s %s</b> - <b>%.2f USDT</b> - %s\n", i+1, typeFa, networkFa, tx.Amount, statusFa)
 	}
 
+	history := fmt.Sprintf(`📋 *تاریخچه تراکنش‌ها*
+
+📊 *خلاصه (آخرین ۱۰ تراکنش):*
+• کل واریز: %.2f USDT (%d تراکنش)
+• کل برداشت: %.2f USDT (%d تراکنش)
+
+📋 *جزئیات تراکنش‌ها:*`, totalDeposits, depositCount, totalWithdrawals, withdrawCount)
+
+	for i, tx := range txs {
+		typeFa := "💳 واریز"
+		if tx.Type == "withdraw" {
+			typeFa = "💵 برداشت"
+		}
+
+		networkFa := ""
+		if tx.Network == "ERC20" {
+			networkFa = "🔵 ERC20"
+		} else if tx.Network == "BEP20" {
+			networkFa = "🟡 BEP20"
+		}
+
+		statusFa := "⏳ در انتظار"
+		if tx.Status == "confirmed" {
+			statusFa = "✅ تایید شده"
+		} else if tx.Status == "failed" {
+			statusFa = "❌ ناموفق"
+		}
+
+		// Format transaction date
+		dateStr := tx.CreatedAt.Format("02/01 15:04")
+
+		history += fmt.Sprintf("\n%d. %s %s - %.2f USDT - %s (%s)",
+			i+1, typeFa, networkFa, tx.Amount, statusFa, dateStr)
+	}
+
+	history += "\n\n💡 *نکته:* فقط تراکنش‌های تایید شده در موجودی محاسبه می‌شوند."
+
 	message := tgbotapi.NewMessage(msg.Chat.ID, history)
-	message.ParseMode = "HTML"
+	message.ParseMode = "Markdown"
+	bot.Send(message)
+}
+
+func showPersonalStats(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
+	userID := int64(msg.From.ID)
+	user, err := getUserByTelegramID(db, userID)
+	if err != nil || user == nil {
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "کاربر یافت نشد. لطفاً ابتدا ثبت‌نام کنید."))
+		return
+	}
+
+	// Calculate USDT balances for each network
+	var erc20Balance, bep20Balance float64
+
+	// Calculate ERC20 balance (deposits - withdrawals)
+	var erc20Deposits, erc20Withdrawals float64
+	db.Model(&models.Transaction{}).
+		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "ERC20", "deposit", "confirmed").
+		Select("COALESCE(SUM(amount), 0)").
+		Scan(&erc20Deposits)
+	
+	db.Model(&models.Transaction{}).
+		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "ERC20", "withdraw", "confirmed").
+		Select("COALESCE(SUM(amount), 0)").
+		Scan(&erc20Withdrawals)
+	
+	erc20Balance = erc20Deposits - erc20Withdrawals
+
+	// Calculate BEP20 balance (deposits - withdrawals)
+	var bep20Deposits, bep20Withdrawals float64
+	db.Model(&models.Transaction{}).
+		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "BEP20", "deposit", "confirmed").
+		Select("COALESCE(SUM(amount), 0)").
+		Scan(&bep20Deposits)
+	
+	db.Model(&models.Transaction{}).
+		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "BEP20", "withdraw", "confirmed").
+		Select("COALESCE(SUM(amount), 0)").
+		Scan(&bep20Withdrawals)
+	
+	bep20Balance = bep20Deposits - bep20Withdrawals
+
+	// Calculate total balance
+	totalBalance := erc20Balance + bep20Balance
+
+	// Count successful referrals
+	var referralCount int64
+	db.Model(&models.User{}).Where("referrer_id = ? AND registered = ?", user.ID, true).Count(&referralCount)
+
+	// Count transactions by type and network
+	var erc20DepositCount, erc20WithdrawCount, bep20DepositCount, bep20WithdrawCount int64
+	db.Model(&models.Transaction{}).Where("user_id = ? AND network = ? AND type = ?", user.ID, "ERC20", "deposit").Count(&erc20DepositCount)
+	db.Model(&models.Transaction{}).Where("user_id = ? AND network = ? AND type = ?", user.ID, "ERC20", "withdraw").Count(&erc20WithdrawCount)
+	db.Model(&models.Transaction{}).Where("user_id = ? AND network = ? AND type = ?", user.ID, "BEP20", "deposit").Count(&bep20DepositCount)
+	db.Model(&models.Transaction{}).Where("user_id = ? AND network = ? AND type = ?", user.ID, "BEP20", "withdraw").Count(&bep20WithdrawCount)
+
+	// Calculate total transactions
+	totalTransactions := erc20DepositCount + erc20WithdrawCount + bep20DepositCount + bep20WithdrawCount
+
+	// Calculate total deposits and withdrawals
+	totalDeposits := erc20Deposits + bep20Deposits
+	totalWithdrawals := erc20Withdrawals + bep20Withdrawals
+
+	statsMsg := fmt.Sprintf(`📈 *آمار شخصی*
+
+👤 *اطلاعات کاربر:*
+• نام: %s
+• نام کاربری: @%s
+• تاریخ عضویت: %s
+
+💰 *موجودی کیف پول:*
+• موجودی کل: %.2f USDT
+• 🔵 ERC20 (اتریوم): %.2f USDT
+• 🟡 BEP20 (بایننس): %.2f USDT
+
+🎁 *آمار رفرال:*
+• موجودی پاداش: %.2f USDT
+• تعداد زیرمجموعه: %d کاربر
+
+📊 *آمار تراکنش‌ها:*
+• کل تراکنش‌ها: %d مورد
+• کل واریز: %.2f USDT
+• کل برداشت: %.2f USDT
+
+📋 *جزئیات تراکنش‌ها:*
+• 🔵 ERC20 واریز: %d مورد (%.2f USDT)
+• 🔵 ERC20 برداشت: %d مورد (%.2f USDT)
+• 🟡 BEP20 واریز: %d مورد (%.2f USDT)
+• 🟡 BEP20 برداشت: %d مورد (%.2f USDT)`, 
+		user.FullName, user.Username, user.CreatedAt.Format("02/01/2006"),
+		totalBalance, erc20Balance, bep20Balance,
+		user.ReferralReward, referralCount,
+		totalTransactions, totalDeposits, totalWithdrawals,
+		erc20DepositCount, erc20Deposits, erc20WithdrawCount, erc20Withdrawals,
+		bep20DepositCount, bep20Deposits, bep20WithdrawCount, bep20Withdrawals)
+
+	message := tgbotapi.NewMessage(msg.Chat.ID, statsMsg)
+	message.ParseMode = "Markdown"
 	bot.Send(message)
 }
