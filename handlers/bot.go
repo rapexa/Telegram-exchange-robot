@@ -901,6 +901,27 @@ func handleWalletDeposit(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Messag
 		return
 	}
 
+	// For old users: if missing wallet, generate and save
+	if user.ERC20Address == "" || user.BEP20Address == "" {
+		ethMnemonic, ethPriv, ethAddr, err := models.GenerateEthWallet()
+		if err == nil && user.ERC20Address == "" {
+			user.ERC20Address = ethAddr
+			user.ERC20Mnemonic = ethMnemonic
+			user.ERC20PrivKey = ethPriv
+		}
+		bepMnemonic, bepPriv, bepAddr, err := models.GenerateEthWallet()
+		if err == nil && user.BEP20Address == "" {
+			user.BEP20Address = bepAddr
+			user.BEP20Mnemonic = bepMnemonic
+			user.BEP20PrivKey = bepPriv
+		}
+		db.Save(user)
+		if user.ERC20Address == "" || user.BEP20Address == "" {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "آدرس کیف پول شما ساخته نشد. لطفاً با پشتیبانی تماس بگیرید."))
+			return
+		}
+	}
+
 	msgText := `💳 *آدرس‌های واریز USDT شما:*
 
 *ERC20 (اتریوم):*
