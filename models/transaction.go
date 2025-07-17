@@ -186,16 +186,14 @@ func parseUSDTAmount(val string) float64 {
 	if val == "" {
 		return 0
 	}
-	// USDT has 6 decimals
-	if len(val) <= 6 {
-		return 0
-	}
-	intPart := val[:len(val)-6]
-	fracPart := val[len(val)-6:]
-	amountStr := intPart + "." + fracPart
-	amount, err := strconv.ParseFloat(amountStr, 64)
+	intVal, err := strconv.ParseFloat(val, 64)
 	if err != nil {
 		return 0
 	}
-	return amount
+	if intVal >= 1e12 {
+		// 12 decimals (rare, but some APIs/networks)
+		return intVal / 1e12
+	}
+	// Default: 6 decimals (standard USDT)
+	return intVal / 1e6
 }
