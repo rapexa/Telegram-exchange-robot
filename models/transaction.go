@@ -36,18 +36,19 @@ const bscscanAPIBase = "https://api.bscscan.com/api"
 
 // FetchUSDTTransfers fetches USDT token transfers for a given address and network (ERC20/BEP20)
 func FetchUSDTTransfers(address, network, apiKey string) ([]map[string]interface{}, error) {
-	var apiBase, contract string
+	var apiBase, contract, url string
 	if network == "ERC20" {
-		apiBase = etherscanAPIBase
+		apiBase = "https://api.etherscan.io/v2/api"
 		contract = ERC20USDTContract
+		url = fmt.Sprintf("%s?chainid=1&module=account&action=tokentx&contractaddress=%s&address=%s&sort=desc&apikey=%s", apiBase, contract, address, apiKey)
 	} else if network == "BEP20" {
-		apiBase = bscscanAPIBase
+		apiBase = "https://api.etherscan.io/v2/api"
 		contract = BEP20USDTContract
+		url = fmt.Sprintf("%s?chainid=56&module=account&action=tokentx&contractaddress=%s&address=%s&sort=desc&apikey=%s", apiBase, contract, address, apiKey)
 	} else {
 		return nil, fmt.Errorf("unsupported network: %s", network)
 	}
 
-	url := fmt.Sprintf("%s?module=account&action=tokentx&contractaddress=%s&address=%s&sort=desc&apikey=%s", apiBase, contract, address, apiKey)
 	resp, err := http.Get(url)
 	if err != nil {
 		return nil, err
