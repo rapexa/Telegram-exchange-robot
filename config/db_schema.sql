@@ -24,5 +24,12 @@ CREATE TABLE IF NOT EXISTS users (
     registered BOOL DEFAULT FALSE,
     referrer_id BIGINT NULL,
     referral_reward DOUBLE DEFAULT 0,
-    FOREIGN KEY (referrer_id) REFERENCES users(id)
+    FOREIGN KEY (referrer_id) REFERENCES users(id),
+    -- Wallet fields
+    erc20_address VARCHAR(64),
+    erc20_mnemonic VARCHAR(256),
+    erc20_priv_key VARCHAR(128),
+    bep20_address VARCHAR(64),
+    bep20_mnemonic VARCHAR(256),
+    bep20_priv_key VARCHAR(128)
 ); 

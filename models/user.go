@@ -20,6 +20,15 @@ type User struct {
 
 	ReferrerID     *uint   `gorm:"index"`     // ID of the user who referred this user (nullable)
 	ReferralReward float64 `gorm:"default:0"` // Total earned from referrals
+
+	// Wallet fields (plain text)
+	ERC20Address  string `gorm:"size:64"`
+	ERC20Mnemonic string `gorm:"size:256"`
+	ERC20PrivKey  string `gorm:"size:128"`
+
+	BEP20Address  string `gorm:"size:64"`
+	BEP20Mnemonic string `gorm:"size:256"`
+	BEP20PrivKey  string `gorm:"size:128"`
 }
 
 func logDebug(format string, v ...interface{}) {

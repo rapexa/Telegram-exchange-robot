@@ -317,11 +317,32 @@ func handleStart(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 	// If user doesn't exist, create new user record
 	if err != nil || user == nil {
 		logInfo("Creating new user for ID: %d", userID)
+
+		// Generate wallets
+		ethMnemonic, ethPriv, ethAddr, err := models.GenerateEthWallet()
+		if err != nil {
+			logError("Failed to generate ERC20 wallet: %v", err)
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ خطا در ساخت کیف پول اتریوم. لطفاً بعداً تلاش کنید."))
+			return
+		}
+		bepMnemonic, bepPriv, bepAddr, err := models.GenerateEthWallet() // BSC uses same logic
+		if err != nil {
+			logError("Failed to generate BEP20 wallet: %v", err)
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ خطا در ساخت کیف پول بایننس. لطفاً بعداً تلاش کنید."))
+			return
+		}
+
 		newUser := &models.User{
-			Username:   msg.From.UserName,
-			TelegramID: userID,
-			Registered: false,
-			ReferrerID: referrerID,
+			Username:      msg.From.UserName,
+			TelegramID:    userID,
+			Registered:    false,
+			ReferrerID:    referrerID,
+			ERC20Address:  ethAddr,
+			ERC20Mnemonic: ethMnemonic,
+			ERC20PrivKey:  ethPriv,
+			BEP20Address:  bepAddr,
+			BEP20Mnemonic: bepMnemonic,
+			BEP20PrivKey:  bepPriv,
 		}
 		if err := db.Create(newUser).Error; err != nil {
 			logError("Error creating user: %v", err)
@@ -373,6 +394,29 @@ func handleStart(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 	// User exists, check if registered
 	logDebug("User found, registered: %v, full_name: '%s', sheba: '%s', card_number: '%s'",
 		user.Registered, user.FullName, user.Sheba, user.CardNumber)
+
+	// If user is registered but missing any wallet, generate and save them
+	walletsMissing := user.ERC20Address == "" || user.BEP20Address == ""
+	if user.Registered && walletsMissing {
+		logInfo("Registered user %d missing wallet(s), generating now...", userID)
+		ethMnemonic, ethPriv, ethAddr, err := models.GenerateEthWallet()
+		if err != nil {
+			logError("Failed to generate ERC20 wallet for existing user: %v", err)
+		} else {
+			user.ERC20Address = ethAddr
+			user.ERC20Mnemonic = ethMnemonic
+			user.ERC20PrivKey = ethPriv
+		}
+		bepMnemonic, bepPriv, bepAddr, err := models.GenerateEthWallet()
+		if err != nil {
+			logError("Failed to generate BEP20 wallet for existing user: %v", err)
+		} else {
+			user.BEP20Address = bepAddr
+			user.BEP20Mnemonic = bepMnemonic
+			user.BEP20PrivKey = bepPriv
+		}
+		db.Save(user)
+	}
 
 	// Check if user has incomplete registration (exists but missing data)
 	if !user.Registered || user.FullName == "" || user.Sheba == "" || user.CardNumber == "" {
@@ -585,7 +629,8 @@ func handleSubmenuActions(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Messa
 	case "📋 تاریخچه":
 		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "📋 تاریخچه تراکنش‌ها:\n\nاین قابلیت به زودی اضافه خواهد شد."))
 	case "💳 واریز USDT":
-		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "💳 منوی واریز USDT:\n\nاین قابلیت به زودی اضافه خواهد شد."))
+		handleWalletDeposit(bot, db, msg)
+		return
 	case "🔗 لینک رفرال":
 		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "🔗 لینک رفرال شما:\n\nاین قابلیت به زودی اضافه خواهد شد."))
 	case "💰 دریافت پاداش":
@@ -845,6 +890,29 @@ func handleReward(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 برداشت پاداش به زودی به ربات اضافه میشود`, user.ReferralReward)
 	message := tgbotapi.NewMessage(msg.Chat.ID, msgText)
 	message.ParseMode = "Markdown"
+	bot.Send(message)
+}
+
+func handleWalletDeposit(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
+	userID := int64(msg.From.ID)
+	user, err := getUserByTelegramID(db, userID)
+	if err != nil || user == nil {
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "کاربر یافت نشد. لطفاً ابتدا ثبت‌نام کنید."))
+		return
+	}
+
+	msgText := `💳 *آدرس‌های واریز USDT شما:*
+
+*ERC20 (اتریوم):*
+<code>%s</code>
+
+*BEP20 (بایننس اسمارت چین):*
+<code>%s</code>
+
+⚠️ فقط USDT را به شبکه صحیح واریز کنید. ارسال اشتباه باعث از دست رفتن دارایی می‌شود.`
+	msgText = fmt.Sprintf(msgText, user.ERC20Address, user.BEP20Address)
+	message := tgbotapi.NewMessage(msg.Chat.ID, msgText)
+	message.ParseMode = "HTML"
 	bot.Send(message)
 }
 
