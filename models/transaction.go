@@ -83,14 +83,15 @@ func SyncAllUserDeposits(db *gorm.DB, apiKey string) error {
 			txs, err := FetchUSDTTransfers(user.ERC20Address, "ERC20", apiKey)
 			if err == nil {
 				for _, tx := range txs {
+					txHash, _ := tx["hash"].(string)
+					amountStr, _ := tx["value"].(string)
+					amountFloat := parseUSDTAmount(amountStr)
 					// Deposit: incoming transfers to this address
 					if to, ok := tx["to"].(string); ok && strings.EqualFold(to, user.ERC20Address) {
-						txHash, _ := tx["hash"].(string)
-						amountStr, _ := tx["value"].(string)
-						amountFloat := parseUSDTAmount(amountStr)
 						var count int64
 						db.Model(&Transaction{}).Where("tx_hash = ? AND network = ?", txHash, "ERC20").Count(&count)
 						if count == 0 {
+							fmt.Printf("[DEBUG] ERC20 DEPOSIT: user_id=%d, address=%s, tx=%s, amount=%.6f -> INSERTED\n", user.ID, user.ERC20Address, txHash, amountFloat)
 							t := Transaction{
 								UserID:  user.ID,
 								Type:    "deposit",
@@ -100,16 +101,16 @@ func SyncAllUserDeposits(db *gorm.DB, apiKey string) error {
 								Status:  "confirmed",
 							}
 							db.Create(&t)
+						} else {
+							fmt.Printf("[DEBUG] ERC20 DEPOSIT: user_id=%d, address=%s, tx=%s, amount=%.6f -> SKIPPED (exists)\n", user.ID, user.ERC20Address, txHash, amountFloat)
 						}
 					}
 					// Withdraw: outgoing transfers from this address
 					if from, ok := tx["from"].(string); ok && strings.EqualFold(from, user.ERC20Address) {
-						txHash, _ := tx["hash"].(string)
-						amountStr, _ := tx["value"].(string)
-						amountFloat := parseUSDTAmount(amountStr)
 						var count int64
 						db.Model(&Transaction{}).Where("tx_hash = ? AND network = ?", txHash, "ERC20").Count(&count)
 						if count == 0 {
+							fmt.Printf("[DEBUG] ERC20 WITHDRAW: user_id=%d, address=%s, tx=%s, amount=%.6f -> INSERTED\n", user.ID, user.ERC20Address, txHash, amountFloat)
 							t := Transaction{
 								UserID:  user.ID,
 								Type:    "withdraw",
@@ -119,6 +120,8 @@ func SyncAllUserDeposits(db *gorm.DB, apiKey string) error {
 								Status:  "confirmed",
 							}
 							db.Create(&t)
+						} else {
+							fmt.Printf("[DEBUG] ERC20 WITHDRAW: user_id=%d, address=%s, tx=%s, amount=%.6f -> SKIPPED (exists)\n", user.ID, user.ERC20Address, txHash, amountFloat)
 						}
 					}
 				}
@@ -129,14 +132,15 @@ func SyncAllUserDeposits(db *gorm.DB, apiKey string) error {
 			txs, err := FetchUSDTTransfers(user.BEP20Address, "BEP20", apiKey)
 			if err == nil {
 				for _, tx := range txs {
+					txHash, _ := tx["hash"].(string)
+					amountStr, _ := tx["value"].(string)
+					amountFloat := parseUSDTAmount(amountStr)
 					// Deposit: incoming transfers to this address
 					if to, ok := tx["to"].(string); ok && strings.EqualFold(to, user.BEP20Address) {
-						txHash, _ := tx["hash"].(string)
-						amountStr, _ := tx["value"].(string)
-						amountFloat := parseUSDTAmount(amountStr)
 						var count int64
 						db.Model(&Transaction{}).Where("tx_hash = ? AND network = ?", txHash, "BEP20").Count(&count)
 						if count == 0 {
+							fmt.Printf("[DEBUG] BEP20 DEPOSIT: user_id=%d, address=%s, tx=%s, amount=%.6f -> INSERTED\n", user.ID, user.BEP20Address, txHash, amountFloat)
 							t := Transaction{
 								UserID:  user.ID,
 								Type:    "deposit",
@@ -146,16 +150,16 @@ func SyncAllUserDeposits(db *gorm.DB, apiKey string) error {
 								Status:  "confirmed",
 							}
 							db.Create(&t)
+						} else {
+							fmt.Printf("[DEBUG] BEP20 DEPOSIT: user_id=%d, address=%s, tx=%s, amount=%.6f -> SKIPPED (exists)\n", user.ID, user.BEP20Address, txHash, amountFloat)
 						}
 					}
 					// Withdraw: outgoing transfers from this address
 					if from, ok := tx["from"].(string); ok && strings.EqualFold(from, user.BEP20Address) {
-						txHash, _ := tx["hash"].(string)
-						amountStr, _ := tx["value"].(string)
-						amountFloat := parseUSDTAmount(amountStr)
 						var count int64
 						db.Model(&Transaction{}).Where("tx_hash = ? AND network = ?", txHash, "BEP20").Count(&count)
 						if count == 0 {
+							fmt.Printf("[DEBUG] BEP20 WITHDRAW: user_id=%d, address=%s, tx=%s, amount=%.6f -> INSERTED\n", user.ID, user.BEP20Address, txHash, amountFloat)
 							t := Transaction{
 								UserID:  user.ID,
 								Type:    "withdraw",
@@ -165,6 +169,8 @@ func SyncAllUserDeposits(db *gorm.DB, apiKey string) error {
 								Status:  "confirmed",
 							}
 							db.Create(&t)
+						} else {
+							fmt.Printf("[DEBUG] BEP20 WITHDRAW: user_id=%d, address=%s, tx=%s, amount=%.6f -> SKIPPED (exists)\n", user.ID, user.BEP20Address, txHash, amountFloat)
 						}
 					}
 				}
