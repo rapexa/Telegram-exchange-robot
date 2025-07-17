@@ -527,12 +527,12 @@ func showUserInfo(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, user *models.
 		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "ERC20", "deposit", "confirmed").
 		Select("COALESCE(SUM(amount), 0)").
 		Scan(&erc20Deposits)
-	
+
 	db.Model(&models.Transaction{}).
 		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "ERC20", "withdraw", "confirmed").
 		Select("COALESCE(SUM(amount), 0)").
 		Scan(&erc20Withdrawals)
-	
+
 	erc20Balance = erc20Deposits - erc20Withdrawals
 
 	// Calculate BEP20 balance (deposits - withdrawals)
@@ -541,12 +541,12 @@ func showUserInfo(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, user *models.
 		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "BEP20", "deposit", "confirmed").
 		Select("COALESCE(SUM(amount), 0)").
 		Scan(&bep20Deposits)
-	
+
 	db.Model(&models.Transaction{}).
 		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "BEP20", "withdraw", "confirmed").
 		Select("COALESCE(SUM(amount), 0)").
 		Scan(&bep20Withdrawals)
-	
+
 	bep20Balance = bep20Deposits - bep20Withdrawals
 
 	// Calculate total balance
@@ -582,8 +582,8 @@ func showUserInfo(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, user *models.
 • کل تراکنش‌ها: %d مورد
 
 🎉 *خوش آمدید!* حالا می‌توانید از تمام خدمات ربات استفاده کنید.`,
-		user.FullName, user.Username, user.CardNumber, user.Sheba, 
-		totalBalance, erc20Balance, bep20Balance, 
+		user.FullName, user.Username, user.CardNumber, user.Sheba,
+		totalBalance, erc20Balance, bep20Balance,
 		user.ReferralReward, referralCount, totalTransactions)
 
 	message := tgbotapi.NewMessage(chatID, info)
@@ -723,12 +723,12 @@ func showMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64)
 		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "ERC20", "deposit", "confirmed").
 		Select("COALESCE(SUM(amount), 0)").
 		Scan(&erc20Deposits)
-	
+
 	db.Model(&models.Transaction{}).
 		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "ERC20", "withdraw", "confirmed").
 		Select("COALESCE(SUM(amount), 0)").
 		Scan(&erc20Withdrawals)
-	
+
 	erc20Balance = erc20Deposits - erc20Withdrawals
 
 	// Calculate BEP20 balance (deposits - withdrawals)
@@ -737,12 +737,12 @@ func showMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64)
 		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "BEP20", "deposit", "confirmed").
 		Select("COALESCE(SUM(amount), 0)").
 		Scan(&bep20Deposits)
-	
+
 	db.Model(&models.Transaction{}).
 		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "BEP20", "withdraw", "confirmed").
 		Select("COALESCE(SUM(amount), 0)").
 		Scan(&bep20Withdrawals)
-	
+
 	bep20Balance = bep20Deposits - bep20Withdrawals
 
 	// Calculate total balance
@@ -783,7 +783,7 @@ func showMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64)
 💰 *کیف پول* - مدیریت موجودی و تراکنش‌ها
 🎁 *پاداش* - سیستم رفرال و پاداش‌ها
 📊 *آمار* - آمار شخصی و زیرمجموعه‌ها
-🆘 *پشتیبانی* - ارتباط با پشتیبانی`, 
+🆘 *پشتیبانی* - ارتباط با پشتیبانی`,
 		user.FullName, totalBalance, user.ReferralReward, referralCount)
 
 	msg := tgbotapi.NewMessage(chatID, mainMsg)
@@ -809,12 +809,12 @@ func showWalletMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int6
 		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "ERC20", "deposit", "confirmed").
 		Select("COALESCE(SUM(amount), 0)").
 		Scan(&erc20Deposits)
-	
+
 	db.Model(&models.Transaction{}).
 		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "ERC20", "withdraw", "confirmed").
 		Select("COALESCE(SUM(amount), 0)").
 		Scan(&erc20Withdrawals)
-	
+
 	erc20Balance = erc20Deposits - erc20Withdrawals
 
 	// Calculate BEP20 balance (deposits - withdrawals)
@@ -823,12 +823,12 @@ func showWalletMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int6
 		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "BEP20", "deposit", "confirmed").
 		Select("COALESCE(SUM(amount), 0)").
 		Scan(&bep20Deposits)
-	
+
 	db.Model(&models.Transaction{}).
 		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "BEP20", "withdraw", "confirmed").
 		Select("COALESCE(SUM(amount), 0)").
 		Scan(&bep20Withdrawals)
-	
+
 	bep20Balance = bep20Deposits - bep20Withdrawals
 
 	// Calculate total balance
@@ -864,7 +864,7 @@ func showWalletMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int6
 💵 *برداشت* - درخواست برداشت ریالی
 📋 *تاریخچه* - مشاهده تراکنش‌های قبلی
 💳 *واریز USDT* - واریز ارز دیجیتال
-⬅️ *بازگشت* - بازگشت به منوی اصلی`, 
+⬅️ *بازگشت* - بازگشت به منوی اصلی`,
 		totalBalance, erc20Balance, bep20Balance)
 
 	msg := tgbotapi.NewMessage(chatID, balanceMsg)
@@ -908,7 +908,7 @@ func showRewardsMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int
 💡 *گزینه‌های موجود:*
 🔗 *لینک رفرال* - دریافت لینک معرفی
 💰 *دریافت پاداش* - انتقال پاداش به کیف پول
-⬅️ *بازگشت* - بازگشت به منوی اصلی`, 
+⬅️ *بازگشت* - بازگشت به منوی اصلی`,
 		user.ReferralReward, referralCount)
 
 	msg := tgbotapi.NewMessage(chatID, rewardMsg)
@@ -934,12 +934,12 @@ func showStatsMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64
 		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "ERC20", "deposit", "confirmed").
 		Select("COALESCE(SUM(amount), 0)").
 		Scan(&erc20Deposits)
-	
+
 	db.Model(&models.Transaction{}).
 		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "ERC20", "withdraw", "confirmed").
 		Select("COALESCE(SUM(amount), 0)").
 		Scan(&erc20Withdrawals)
-	
+
 	erc20Balance = erc20Deposits - erc20Withdrawals
 
 	// Calculate BEP20 balance (deposits - withdrawals)
@@ -948,12 +948,12 @@ func showStatsMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64
 		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "BEP20", "deposit", "confirmed").
 		Select("COALESCE(SUM(amount), 0)").
 		Scan(&bep20Deposits)
-	
+
 	db.Model(&models.Transaction{}).
 		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "BEP20", "withdraw", "confirmed").
 		Select("COALESCE(SUM(amount), 0)").
 		Scan(&bep20Withdrawals)
-	
+
 	bep20Balance = bep20Deposits - bep20Withdrawals
 
 	// Calculate total balance
@@ -1001,7 +1001,7 @@ func showStatsMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64
 💡 *گزینه‌های موجود:*
 📈 *آمار شخصی* - آمار تراکنش‌ها و موجودی
 👥 *زیرمجموعه‌ها* - لیست کاربران معرفی شده
-⬅️ *بازگشت* - بازگشت به منوی اصلی`, 
+⬅️ *بازگشت* - بازگشت به منوی اصلی`,
 		totalBalance, user.ReferralReward, erc20Balance, bep20Balance, referralCount, user.ReferralReward, totalTransactions)
 
 	msg := tgbotapi.NewMessage(chatID, statsMsg)
@@ -1175,12 +1175,12 @@ func handleWalletDeposit(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Messag
 		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "ERC20", "deposit", "confirmed").
 		Select("COALESCE(SUM(amount), 0)").
 		Scan(&erc20Deposits)
-	
+
 	db.Model(&models.Transaction{}).
 		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "ERC20", "withdraw", "confirmed").
 		Select("COALESCE(SUM(amount), 0)").
 		Scan(&erc20Withdrawals)
-	
+
 	erc20Balance = erc20Deposits - erc20Withdrawals
 
 	// Calculate BEP20 balance (deposits - withdrawals)
@@ -1189,12 +1189,12 @@ func handleWalletDeposit(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Messag
 		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "BEP20", "deposit", "confirmed").
 		Select("COALESCE(SUM(amount), 0)").
 		Scan(&bep20Deposits)
-	
+
 	db.Model(&models.Transaction{}).
 		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "BEP20", "withdraw", "confirmed").
 		Select("COALESCE(SUM(amount), 0)").
 		Scan(&bep20Withdrawals)
-	
+
 	bep20Balance = bep20Deposits - bep20Withdrawals
 
 	// For old users: if missing wallet, generate and save
@@ -1227,15 +1227,15 @@ func handleWalletDeposit(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Messag
 📥 *آدرس‌های واریز:*
 
 🔵 *ERC20 (اتریوم):*
-\`%s\`
+`+"`%s`"+`
 
 🟡 *BEP20 (بایننس اسمارت چین):*
-\`%s\`
+`+"`%s`"+`
 
 ⚠️ *هشدار مهم:*
 • فقط USDT را به شبکه صحیح واریز کنید
 • ارسال اشتباه باعث از دست رفتن دارایی می‌شود
-• حداقل واریز: 10 USDT`, 
+• حداقل واریز: 10 USDT`,
 		erc20Balance, bep20Balance, user.ERC20Address, user.BEP20Address)
 
 	message := tgbotapi.NewMessage(msg.Chat.ID, msgText)
@@ -1393,12 +1393,12 @@ func showPersonalStats(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message)
 		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "ERC20", "deposit", "confirmed").
 		Select("COALESCE(SUM(amount), 0)").
 		Scan(&erc20Deposits)
-	
+
 	db.Model(&models.Transaction{}).
 		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "ERC20", "withdraw", "confirmed").
 		Select("COALESCE(SUM(amount), 0)").
 		Scan(&erc20Withdrawals)
-	
+
 	erc20Balance = erc20Deposits - erc20Withdrawals
 
 	// Calculate BEP20 balance (deposits - withdrawals)
@@ -1407,12 +1407,12 @@ func showPersonalStats(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message)
 		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "BEP20", "deposit", "confirmed").
 		Select("COALESCE(SUM(amount), 0)").
 		Scan(&bep20Deposits)
-	
+
 	db.Model(&models.Transaction{}).
 		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "BEP20", "withdraw", "confirmed").
 		Select("COALESCE(SUM(amount), 0)").
 		Scan(&bep20Withdrawals)
-	
+
 	bep20Balance = bep20Deposits - bep20Withdrawals
 
 	// Calculate total balance
@@ -1461,7 +1461,7 @@ func showPersonalStats(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message)
 • 🔵 ERC20 واریز: %d مورد (%.2f USDT)
 • 🔵 ERC20 برداشت: %d مورد (%.2f USDT)
 • 🟡 BEP20 واریز: %d مورد (%.2f USDT)
-• 🟡 BEP20 برداشت: %d مورد (%.2f USDT)`, 
+• 🟡 BEP20 برداشت: %d مورد (%.2f USDT)`,
 		user.FullName, user.Username, user.CreatedAt.Format("02/01/2006"),
 		totalBalance, erc20Balance, bep20Balance,
 		user.ReferralReward, referralCount,
