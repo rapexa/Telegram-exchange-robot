@@ -101,6 +101,10 @@ func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 				m := tgbotapi.NewVoice(u.TelegramID, tgbotapi.FileID(draft.Voice.FileID))
 				m.Caption = "📢 پیام از ادمین:"
 				bot.Send(m)
+			} else if draft.Document != nil {
+				m := tgbotapi.NewDocument(u.TelegramID, tgbotapi.FileID(draft.Document.FileID))
+				m.Caption = "📢 پیام از ادمین:"
+				bot.Send(m)
 			}
 		}
 		adminBroadcastState[msg.From.ID] = ""
