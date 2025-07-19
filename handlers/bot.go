@@ -58,25 +58,50 @@ func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 		var totalDeposit, totalWithdraw float64
 		db.Model(&models.Transaction{}).Where("type = ? AND status = ?", "deposit", "confirmed").Select("COALESCE(SUM(amount),0)").Scan(&totalDeposit)
 		db.Model(&models.Transaction{}).Where("type = ? AND status = ?", "withdraw", "confirmed").Select("COALESCE(SUM(amount),0)").Scan(&totalWithdraw)
-		msgText := fmt.Sprintf(`📊 <b>آمار کلی ربات</b>\n\n👥 کل کاربران: <b>%d</b>\n✅ ثبت‌نام کامل: <b>%d</b>\n💰 مجموع واریز: <b>%.2f USDT</b>\n💸 مجموع برداشت: <b>%.2f USDT</b>`, userCount, regCount, totalDeposit, totalWithdraw)
-		m := tgbotapi.NewMessage(msg.Chat.ID, msgText)
-		m.ParseMode = "HTML"
-		bot.Send(m)
+		statsMsg := fmt.Sprintf("📊 آمار کلی ربات<br><br>👥 کل کاربران: %d<br>✅ ثبت‌نام کامل: %d<br>💰 مجموع واریز: %.2f USDT<br>💸 مجموع برداشت: %.2f USDT", userCount, regCount, totalDeposit, totalWithdraw)
+		message := tgbotapi.NewMessage(msg.Chat.ID, statsMsg)
+		message.ParseMode = "HTML"
+		bot.Send(message)
+		return
 	case "📢 پیام همگانی":
 		// Set admin state for broadcast
 		adminState[msg.From.ID] = "awaiting_broadcast"
+		adminBroadcastState[msg.From.ID] = true
 		m := tgbotapi.NewMessage(msg.Chat.ID, "✏️ پیام خود را برای ارسال همگانی بنویسید:")
 		bot.Send(m)
+		return
 	case "⬅️ بازگشت":
 		showMainMenu(bot, db, msg.Chat.ID, msg.From.ID)
-	default:
-		m := tgbotapi.NewMessage(msg.Chat.ID, "دستور نامعتبر در پنل مدیریت.")
-		bot.Send(m)
+		return
 	}
+
+	if adminBroadcastState[msg.From.ID] {
+		// Send broadcast to all users
+		var users []models.User
+		db.Find(&users)
+		for _, u := range users {
+			if u.TelegramID == msg.From.ID {
+				continue // don't send to self
+			}
+			m := tgbotapi.NewMessage(u.TelegramID, msg.Text)
+			bot.Send(m)
+		}
+		adminBroadcastState[msg.From.ID] = false
+		message := tgbotapi.NewMessage(msg.Chat.ID, "✅ پیام همگانی با موفقیت ارسال شد.")
+		bot.Send(message)
+		return
+	}
+
+	// If none matched, show invalid command
+	message := tgbotapi.NewMessage(msg.Chat.ID, "دستور نامعتبر در پنل مدیریت.")
+	bot.Send(message)
+	return
 }
 
 // Track admin state for broadcast
 var adminState = make(map[int64]string)
+
+var adminBroadcastState = make(map[int64]bool)
 
 func logInfo(format string, v ...interface{}) {
 	log.Printf("[INFO] "+format, v...)
@@ -623,7 +648,7 @@ func showMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64)
 	menu.OneTimeKeyboard = false
 
 	// Create main menu message with summary
-	mainMsg := fmt.Sprintf(`🏠 *منوی اصلی*
+	mainMsg := fmt.Sprintf(`�� *منوی اصلی*
 
 👋 سلام %s!
 
