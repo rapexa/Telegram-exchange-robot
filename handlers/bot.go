@@ -159,24 +159,6 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB) {
 		// User is fully registered, show main menu
 		handleMainMenu(bot, db, update.Message)
 	}
-
-	// Check for admin menu state
-	for userID, state := range adminState {
-		if state == "awaiting_broadcast" {
-			// Send broadcast to all users
-			var users []models.User
-			db.Find(&users)
-			for _, u := range users {
-				if u.TelegramID != 0 {
-					msg := tgbotapi.NewMessage(u.TelegramID, update.Message.Text)
-					bot.Send(msg)
-				}
-			}
-			adminState[userID] = ""
-			bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "✅ پیام همگانی ارسال شد."))
-			continue
-		}
-	}
 }
 
 // handleRegistration manages the registration state machine. Returns true if in registration flow.
