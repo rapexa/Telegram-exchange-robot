@@ -1488,7 +1488,7 @@ func confirmBroadcastKeyboard() tgbotapi.InlineKeyboardMarkup {
 	return tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("✅ ارسال", "broadcast_send"),
-			tgbotapi.NewInlineKeyboardButtonData("⬅️ بازگشت", "broadcast_cancel"),
+			tgbotapi.NewInlineKeyboardButtonData("لغو ارسال", "broadcast_cancel"),
 		),
 	)
 }
