@@ -37,9 +37,6 @@ func showAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) {
 		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("📢 پیام همگانی"),
 		),
-		tgbotapi.NewKeyboardButtonRow(
-			tgbotapi.NewKeyboardButton("⬅️ بازگشت"),
-		),
 	)
 	menu.ResizeKeyboard = true
 	menu.OneTimeKeyboard = false
