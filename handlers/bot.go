@@ -102,7 +102,8 @@ func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 // Track admin state for broadcast
 var adminState = make(map[int64]string)
 
-var adminBroadcastState = make(map[int64]bool)
+var adminBroadcastState = make(map[int64]string) // "awaiting_broadcast", "confirm_broadcast", ""
+var adminBroadcastDraft = make(map[int64]*tgbotapi.Message)
 
 func logInfo(format string, v ...interface{}) {
 	log.Printf("[INFO] "+format, v...)
@@ -1360,4 +1361,14 @@ func showPersonalStats(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message)
 	message := tgbotapi.NewMessage(msg.Chat.ID, statsMsg)
 	message.ParseMode = "Markdown"
 	bot.Send(message)
+}
+
+// Helper for confirm keyboard
+func confirmBroadcastKeyboard() tgbotapi.InlineKeyboardMarkup {
+	return tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("✅ ارسال", "broadcast_send"),
+			tgbotapi.NewInlineKeyboardButtonData("⬅️ بازگشت", "broadcast_cancel"),
+		),
+	)
 }
