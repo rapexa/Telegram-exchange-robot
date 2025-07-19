@@ -146,11 +146,7 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB) {
 	logInfo("🔄 Bot update channel started, waiting for messages...")
 
 	for update := range updates {
-		if update.Message == nil {
-			continue
-		}
-
-		// At the very top of the for update := range updates loop in StartBot:
+		// Handle CallbackQuery first!
 		if update.CallbackQuery != nil {
 			userID := int64(update.CallbackQuery.From.ID)
 			if isAdmin(userID) {
@@ -208,6 +204,10 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB) {
 					}
 				}
 			}
+		}
+		// Now check for Message
+		if update.Message == nil {
+			continue
 		}
 
 		// Registration flow state machine - check first
@@ -726,7 +726,7 @@ func handleSubmenuActions(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Messa
 2️⃣ شماره شبا
 3️⃣ شماره کارت
 
-🔄 در حال انتقال به صفحه ثبت‌نام...`
+�� در حال انتقال به صفحه ثبت‌نام...`
 
 		message := tgbotapi.NewMessage(msg.Chat.ID, redirectMsg)
 		message.ParseMode = "Markdown"
