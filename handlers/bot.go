@@ -66,7 +66,7 @@ func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 	case "📢 پیام همگانی":
 		// Set admin state for broadcast
 		adminState[msg.From.ID] = "awaiting_broadcast"
-		adminBroadcastState[msg.From.ID] = true
+		adminBroadcastState[msg.From.ID] = "awaiting_broadcast"
 		m := tgbotapi.NewMessage(msg.Chat.ID, "✏️ پیام خود را برای ارسال همگانی بنویسید:")
 		bot.Send(m)
 		return
@@ -75,19 +75,36 @@ func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 		return
 	}
 
-	if adminBroadcastState[msg.From.ID] {
+	if adminBroadcastState[msg.From.ID] == "confirm_broadcast" {
 		// Send broadcast to all users
 		var users []models.User
 		db.Find(&users)
+		draft := adminBroadcastDraft[msg.From.ID]
 		for _, u := range users {
 			if u.TelegramID == msg.From.ID {
 				continue // don't send to self
 			}
-			broadcastText := "📢 پیام از ادمین:\n\n" + msg.Text
-			m := tgbotapi.NewMessage(u.TelegramID, broadcastText)
-			bot.Send(m)
+			if draft.Text != "" {
+				broadcastText := "📢 پیام از ادمین:\n\n" + draft.Text
+				m := tgbotapi.NewMessage(u.TelegramID, broadcastText)
+				bot.Send(m)
+			} else if draft.Photo != nil {
+				photo := (*draft.Photo)[len(*draft.Photo)-1]
+				m := tgbotapi.NewPhoto(u.TelegramID, tgbotapi.FileID(photo.FileID))
+				m.Caption = "📢 پیام از ادمین:"
+				bot.Send(m)
+			} else if draft.Video != nil {
+				m := tgbotapi.NewVideo(u.TelegramID, tgbotapi.FileID(draft.Video.FileID))
+				m.Caption = "📢 پیام از ادمین:"
+				bot.Send(m)
+			} else if draft.Voice != nil {
+				m := tgbotapi.NewVoice(u.TelegramID, tgbotapi.FileID(draft.Voice.FileID))
+				m.Caption = "📢 پیام از ادمین:"
+				bot.Send(m)
+			}
 		}
-		adminBroadcastState[msg.From.ID] = false
+		adminBroadcastState[msg.From.ID] = ""
+		adminBroadcastDraft[msg.From.ID] = nil
 		message := tgbotapi.NewMessage(msg.Chat.ID, "✅ پیام همگانی با موفقیت ارسال شد.")
 		bot.Send(message)
 		return
