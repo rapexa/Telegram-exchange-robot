@@ -150,6 +150,66 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB) {
 			continue
 		}
 
+		// At the very top of the for update := range updates loop in StartBot:
+		if update.CallbackQuery != nil {
+			userID := int64(update.CallbackQuery.From.ID)
+			if isAdmin(userID) {
+				state := adminBroadcastState[userID]
+				if state == "confirm_broadcast" {
+					data := update.CallbackQuery.Data
+					if data == "broadcast_send" {
+						var users []models.User
+						db.Find(&users)
+						draft := adminBroadcastDraft[userID]
+						caption := ""
+						if draft.Caption != "" {
+							caption = "📢 پیام از ادمین:\n\n" + draft.Caption
+						}
+						for _, u := range users {
+							if u.TelegramID == userID {
+								continue
+							}
+							if draft.Text != "" && draft.Photo == nil && draft.Video == nil && draft.Voice == nil && draft.Document == nil {
+								m := tgbotapi.NewMessage(u.TelegramID, "📢 پیام از ادمین:\n\n"+draft.Text)
+								bot.Send(m)
+							} else if draft.Photo != nil {
+								photo := draft.Photo[len(draft.Photo)-1]
+								m := tgbotapi.NewPhoto(u.TelegramID, tgbotapi.FileID(photo.FileID))
+								m.Caption = caption
+								bot.Send(m)
+							} else if draft.Video != nil {
+								m := tgbotapi.NewVideo(u.TelegramID, tgbotapi.FileID(draft.Video.FileID))
+								m.Caption = caption
+								bot.Send(m)
+							} else if draft.Voice != nil {
+								m := tgbotapi.NewVoice(u.TelegramID, tgbotapi.FileID(draft.Voice.FileID))
+								m.Caption = caption
+								bot.Send(m)
+							} else if draft.Document != nil {
+								m := tgbotapi.NewDocument(u.TelegramID, tgbotapi.FileID(draft.Document.FileID))
+								m.Caption = caption
+								bot.Send(m)
+							}
+						}
+						adminBroadcastState[userID] = ""
+						adminBroadcastDraft[userID] = nil
+						msg := tgbotapi.NewMessage(userID, "✅ پیام همگانی با موفقیت ارسال شد.")
+						bot.Send(msg)
+						bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "پیام ارسال شد"))
+						continue
+					} else if data == "broadcast_cancel" {
+						adminBroadcastState[userID] = ""
+						adminBroadcastDraft[userID] = nil
+						msg := tgbotapi.NewMessage(userID, "❌ ارسال پیام همگانی لغو شد.")
+						bot.Send(msg)
+						showAdminMenu(bot, db, userID)
+						bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "لغو شد"))
+						continue
+					}
+				}
+			}
+		}
+
 		// Registration flow state machine - check first
 		if handleRegistration(bot, db, update.Message) {
 			continue // User is in registration flow, skip other handlers
