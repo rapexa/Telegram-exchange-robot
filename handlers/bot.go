@@ -83,7 +83,8 @@ func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 			if u.TelegramID == msg.From.ID {
 				continue // don't send to self
 			}
-			m := tgbotapi.NewMessage(u.TelegramID, msg.Text)
+			broadcastText := "📢 پیام از ادمین:\n\n" + msg.Text
+			m := tgbotapi.NewMessage(u.TelegramID, broadcastText)
 			bot.Send(m)
 		}
 		adminBroadcastState[msg.From.ID] = false
