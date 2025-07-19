@@ -58,7 +58,7 @@ func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 		var totalDeposit, totalWithdraw float64
 		db.Model(&models.Transaction{}).Where("type = ? AND status = ?", "deposit", "confirmed").Select("COALESCE(SUM(amount),0)").Scan(&totalDeposit)
 		db.Model(&models.Transaction{}).Where("type = ? AND status = ?", "withdraw", "confirmed").Select("COALESCE(SUM(amount),0)").Scan(&totalWithdraw)
-		statsMsg := fmt.Sprintf("📊 آمار کلی ربات<br><br>👥 کل کاربران: %d<br>✅ ثبت‌نام کامل: %d<br>💰 مجموع واریز: %.2f USDT<br>💸 مجموع برداشت: %.2f USDT", userCount, regCount, totalDeposit, totalWithdraw)
+		statsMsg := fmt.Sprintf("📊 آمار کلی ربات\n\n👥 کل کاربران: %d\n✅ ثبت‌نام کامل: %d\n💰 مجموع واریز: %.2f USDT\n💸 مجموع برداشت: %.2f USDT", userCount, regCount, totalDeposit, totalWithdraw)
 		message := tgbotapi.NewMessage(msg.Chat.ID, statsMsg)
 		message.ParseMode = "HTML"
 		bot.Send(message)
