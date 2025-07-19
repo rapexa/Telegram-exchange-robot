@@ -203,6 +203,101 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB) {
 
 		// User is fully registered, show main menu
 		handleMainMenu(bot, db, update.Message)
+
+		// Handle admin broadcast states
+		state := adminBroadcastState[userID]
+		if state == "awaiting_broadcast" && update.Message != nil {
+			adminBroadcastDraft[userID] = update.Message
+			var previewMsg tgbotapi.Chattable
+			caption := ""
+			if update.Message.Caption != "" {
+				caption = "📢 پیام از ادمین:\n\n" + update.Message.Caption
+			}
+			if update.Message.Text != "" && update.Message.Photo == nil && update.Message.Video == nil && update.Message.Voice == nil && update.Message.Document == nil {
+				preview := "📢 پیام از ادمین:\n\n" + update.Message.Text
+				msg := tgbotapi.NewMessage(userID, preview)
+				msg.ReplyMarkup = confirmBroadcastKeyboard()
+				previewMsg = msg
+			} else if update.Message.Photo != nil {
+				photo := update.Message.Photo[len(update.Message.Photo)-1]
+				msg := tgbotapi.NewPhoto(userID, tgbotapi.FileID(photo.FileID))
+				msg.Caption = caption
+				msg.ReplyMarkup = confirmBroadcastKeyboard()
+				previewMsg = msg
+			} else if update.Message.Video != nil {
+				msg := tgbotapi.NewVideo(userID, tgbotapi.FileID(update.Message.Video.FileID))
+				msg.Caption = caption
+				msg.ReplyMarkup = confirmBroadcastKeyboard()
+				previewMsg = msg
+			} else if update.Message.Voice != nil {
+				msg := tgbotapi.NewVoice(userID, tgbotapi.FileID(update.Message.Voice.FileID))
+				msg.Caption = caption
+				msg.ReplyMarkup = confirmBroadcastKeyboard()
+				previewMsg = msg
+			} else if update.Message.Document != nil {
+				msg := tgbotapi.NewDocument(userID, tgbotapi.FileID(update.Message.Document.FileID))
+				msg.Caption = caption
+				msg.ReplyMarkup = confirmBroadcastKeyboard()
+				previewMsg = msg
+			} else {
+				msg := tgbotapi.NewMessage(userID, "❗️ فقط متن، عکس، ویدیو، ویس یا فایل قابل ارسال است.")
+				msg.ReplyMarkup = confirmBroadcastKeyboard()
+				previewMsg = msg
+			}
+			bot.Send(previewMsg)
+			adminBroadcastState[userID] = "confirm_broadcast"
+			continue
+		}
+		if state == "confirm_broadcast" && update.CallbackQuery != nil {
+			data := update.CallbackQuery.Data
+			if data == "broadcast_send" {
+				var users []models.User
+				db.Find(&users)
+				draft := adminBroadcastDraft[userID]
+				caption := ""
+				if draft.Caption != "" {
+					caption = "📢 پیام از ادمین:\n\n" + draft.Caption
+				}
+				for _, u := range users {
+					if u.TelegramID == userID {
+						continue
+					}
+					if draft.Text != "" && draft.Photo == nil && draft.Video == nil && draft.Voice == nil && draft.Document == nil {
+						m := tgbotapi.NewMessage(u.TelegramID, "📢 پیام از ادمین:\n\n"+draft.Text)
+						bot.Send(m)
+					} else if draft.Photo != nil {
+						photo := draft.Photo[len(draft.Photo)-1]
+						m := tgbotapi.NewPhoto(u.TelegramID, tgbotapi.FileID(photo.FileID))
+						m.Caption = caption
+						bot.Send(m)
+					} else if draft.Video != nil {
+						m := tgbotapi.NewVideo(u.TelegramID, tgbotapi.FileID(draft.Video.FileID))
+						m.Caption = caption
+						bot.Send(m)
+					} else if draft.Voice != nil {
+						m := tgbotapi.NewVoice(u.TelegramID, tgbotapi.FileID(draft.Voice.FileID))
+						m.Caption = caption
+						bot.Send(m)
+					} else if draft.Document != nil {
+						m := tgbotapi.NewDocument(u.TelegramID, tgbotapi.FileID(draft.Document.FileID))
+						m.Caption = caption
+						bot.Send(m)
+					}
+				}
+				adminBroadcastState[userID] = ""
+				adminBroadcastDraft[userID] = nil
+				msg := tgbotapi.NewMessage(userID, "✅ پیام همگانی با موفقیت ارسال شد.")
+				bot.Send(msg)
+				continue
+			} else if data == "broadcast_cancel" {
+				adminBroadcastState[userID] = ""
+				adminBroadcastDraft[userID] = nil
+				msg := tgbotapi.NewMessage(userID, "❌ ارسال پیام همگانی لغو شد.")
+				bot.Send(msg)
+				showAdminMenu(bot, db, userID)
+				continue
+			}
+		}
 	}
 }
 
