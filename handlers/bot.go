@@ -207,6 +207,10 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB) {
 		// Handle admin broadcast states
 		state := adminBroadcastState[userID]
 		if state == "awaiting_broadcast" && update.Message != nil {
+			// Ignore the menu button itself as broadcast content
+			if update.Message.Text == "📢 پیام همگانی" {
+				continue
+			}
 			adminBroadcastDraft[userID] = update.Message
 			var previewMsg tgbotapi.Chattable
 			caption := ""
