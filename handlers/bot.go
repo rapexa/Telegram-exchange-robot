@@ -89,7 +89,7 @@ func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 				m := tgbotapi.NewMessage(u.TelegramID, broadcastText)
 				bot.Send(m)
 			} else if draft.Photo != nil {
-				photo := (*draft.Photo)[len(*draft.Photo)-1]
+				photo := draft.Photo[len(draft.Photo)-1]
 				m := tgbotapi.NewPhoto(u.TelegramID, tgbotapi.FileID(photo.FileID))
 				m.Caption = "📢 پیام از ادمین:"
 				bot.Send(m)
