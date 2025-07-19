@@ -436,8 +436,12 @@ func showUserInfo(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, user *models.
 }
 
 func handleMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
-	// Check if user is fully registered before allowing menu access
 	userID := int64(msg.From.ID)
+	if isAdmin(userID) {
+		handleAdminMenu(bot, db, msg)
+		return
+	}
+	// Check if user is fully registered before allowing menu access
 	user, err := getUserByTelegramID(db, userID)
 
 	if err != nil || user == nil {
@@ -491,8 +495,12 @@ func handleMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 }
 
 func handleSubmenuActions(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
-	// Check if user is fully registered before allowing submenu access
 	userID := int64(msg.From.ID)
+	if isAdmin(userID) {
+		handleAdminMenu(bot, db, msg)
+		return
+	}
+	// Check if user is fully registered before allowing submenu access
 	user, err := getUserByTelegramID(db, userID)
 
 	if err != nil || user == nil {
@@ -551,6 +559,10 @@ func handleSubmenuActions(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Messa
 }
 
 func showMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64) {
+	if isAdmin(userID) {
+		showAdminMenu(bot, db, chatID)
+		return
+	}
 	// Get user to display summary
 	user, err := getUserByTelegramID(db, userID)
 	if err != nil || user == nil {
@@ -637,6 +649,10 @@ func showMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64)
 }
 
 func showWalletMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64) {
+	if isAdmin(userID) {
+		showAdminMenu(bot, db, chatID)
+		return
+	}
 	// Get user to calculate balances
 	user, err := getUserByTelegramID(db, userID)
 	if err != nil || user == nil {
@@ -718,6 +734,10 @@ func showWalletMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int6
 }
 
 func showRewardsMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64) {
+	if isAdmin(userID) {
+		showAdminMenu(bot, db, chatID)
+		return
+	}
 	// Get user to display reward balance
 	user, err := getUserByTelegramID(db, userID)
 	if err != nil || user == nil {
@@ -762,6 +782,10 @@ func showRewardsMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int
 }
 
 func showStatsMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64) {
+	if isAdmin(userID) {
+		showAdminMenu(bot, db, chatID)
+		return
+	}
 	// Get user to display comprehensive stats
 	user, err := getUserByTelegramID(db, userID)
 	if err != nil || user == nil {
