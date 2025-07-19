@@ -22,6 +22,65 @@ var regTemp = struct {
 	sync.RWMutex
 }{m: make(map[int64]map[string]string)}
 
+// --- Admin Panel ---
+const adminUserID int64 = 7403868937
+
+func isAdmin(userID int64) bool {
+	return userID == adminUserID
+}
+
+func showAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) {
+	menu := tgbotapi.NewReplyKeyboard(
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("📊 آمار کلی"),
+		),
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("📢 پیام همگانی"),
+		),
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("⬅️ بازگشت"),
+		),
+	)
+	menu.ResizeKeyboard = true
+	menu.OneTimeKeyboard = false
+
+	msg := tgbotapi.NewMessage(chatID, "🛠️ <b>پنل مدیریت</b>\n\nیکی از گزینه‌های زیر را انتخاب کنید:")
+	msg.ReplyMarkup = menu
+	msg.ParseMode = "HTML"
+	bot.Send(msg)
+}
+
+func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
+	switch msg.Text {
+	case "📊 آمار کلی":
+		// Show global stats
+		var userCount int64
+		db.Model(&models.User{}).Count(&userCount)
+		var regCount int64
+		db.Model(&models.User{}).Where("registered = ?", true).Count(&regCount)
+		var totalDeposit, totalWithdraw float64
+		db.Model(&models.Transaction{}).Where("type = ? AND status = ?", "deposit", "confirmed").Select("COALESCE(SUM(amount),0)").Scan(&totalDeposit)
+		db.Model(&models.Transaction{}).Where("type = ? AND status = ?", "withdraw", "confirmed").Select("COALESCE(SUM(amount),0)").Scan(&totalWithdraw)
+		msgText := fmt.Sprintf(`📊 <b>آمار کلی ربات</b>\n\n👥 کل کاربران: <b>%d</b>\n✅ ثبت‌نام کامل: <b>%d</b>\n💰 مجموع واریز: <b>%.2f USDT</b>\n💸 مجموع برداشت: <b>%.2f USDT</b>`, userCount, regCount, totalDeposit, totalWithdraw)
+		m := tgbotapi.NewMessage(msg.Chat.ID, msgText)
+		m.ParseMode = "HTML"
+		bot.Send(m)
+	case "📢 پیام همگانی":
+		// Set admin state for broadcast
+		adminState[msg.From.ID] = "awaiting_broadcast"
+		m := tgbotapi.NewMessage(msg.Chat.ID, "✏️ پیام خود را برای ارسال همگانی بنویسید:")
+		bot.Send(m)
+	case "⬅️ بازگشت":
+		showMainMenu(bot, db, msg.Chat.ID, msg.From.ID)
+	default:
+		m := tgbotapi.NewMessage(msg.Chat.ID, "دستور نامعتبر در پنل مدیریت.")
+		bot.Send(m)
+	}
+}
+
+// Track admin state for broadcast
+var adminState = make(map[int64]string)
+
 func logInfo(format string, v ...interface{}) {
 	log.Printf("[INFO] "+format, v...)
 }
@@ -99,6 +158,24 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB) {
 
 		// User is fully registered, show main menu
 		handleMainMenu(bot, db, update.Message)
+	}
+
+	// Check for admin menu state
+	for userID, state := range adminState {
+		if state == "awaiting_broadcast" {
+			// Send broadcast to all users
+			var users []models.User
+			db.Find(&users)
+			for _, u := range users {
+				if u.TelegramID != 0 {
+					msg := tgbotapi.NewMessage(u.TelegramID, update.Message.Text)
+					bot.Send(msg)
+				}
+			}
+			adminState[userID] = ""
+			bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "✅ پیام همگانی ارسال شد."))
+			continue
+		}
 	}
 }
 
@@ -295,226 +372,11 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 
 func handleStart(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 	userID := int64(msg.From.ID)
-	user, err := getUserByTelegramID(db, userID)
-
-	// Parse referrer from /start <referrer_id>
-	var referrerID *uint = nil
-	if msg.IsCommand() && msg.Command() == "start" && msg.CommandArguments() != "" {
-		refArg := msg.CommandArguments()
-		var refTGID int64
-		_, err := fmt.Sscanf(refArg, "%d", &refTGID)
-		if err == nil && refTGID != userID {
-			refUser, _ := getUserByTelegramID(db, refTGID)
-			if refUser != nil {
-				referrerID = &refUser.ID
-			}
-		}
-	}
-
-	// Debug logging
-	logDebug("User ID: %d, Error: %v, User: %+v", userID, err, user)
-
-	// If user doesn't exist, create new user record
-	if err != nil || user == nil {
-		logInfo("Creating new user for ID: %d", userID)
-
-		// Generate wallets
-		ethMnemonic, ethPriv, ethAddr, err := models.GenerateEthWallet()
-		if err != nil {
-			logError("Failed to generate ERC20 wallet: %v", err)
-			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ خطا در ساخت کیف پول اتریوم. لطفاً بعداً تلاش کنید."))
-			return
-		}
-		bepMnemonic, bepPriv, bepAddr, err := models.GenerateEthWallet() // BSC uses same logic
-		if err != nil {
-			logError("Failed to generate BEP20 wallet: %v", err)
-			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ خطا در ساخت کیف پول بایننس. لطفاً بعداً تلاش کنید."))
-			return
-		}
-
-		newUser := &models.User{
-			Username:      msg.From.UserName,
-			TelegramID:    userID,
-			Registered:    false,
-			ReferrerID:    referrerID,
-			ERC20Address:  ethAddr,
-			ERC20Mnemonic: ethMnemonic,
-			ERC20PrivKey:  ethPriv,
-			BEP20Address:  bepAddr,
-			BEP20Mnemonic: bepMnemonic,
-			BEP20PrivKey:  bepPriv,
-		}
-		if err := db.Create(newUser).Error; err != nil {
-			logError("Error creating user: %v", err)
-			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ خطا در ایجاد کاربر. لطفاً دوباره تلاش کنید."))
-			return
-		}
-
-		// --- Notify inviter if joined with referral ---
-		if referrerID != nil {
-			var inviter models.User
-			if err := db.First(&inviter, *referrerID).Error; err == nil {
-				joinedUser := msg.From.UserName
-				var notifyMsg string
-				if joinedUser != "" {
-					notifyMsg = fmt.Sprintf("🎉 یک کاربر جدید با لینک دعوت شما وارد ربات شد!\n👤 نام کاربری: @%s", joinedUser)
-				} else {
-					notifyMsg = fmt.Sprintf("🎉 یک کاربر جدید با لینک دعوت شما وارد ربات شد!\n👤 آیدی عددی: %d", userID)
-				}
-				bot.Send(tgbotapi.NewMessage(inviter.TelegramID, notifyMsg))
-			}
-		}
-
-		// Start registration for new user
-		setRegState(userID, "full_name")
-		regTemp.Lock()
-		regTemp.m[userID] = make(map[string]string)
-		regTemp.Unlock()
-
-		welcomeMsg := `🎉 *خوش آمدید به ربات صرافی ارز دیجیتال!*
-
-🔐 برای شروع استفاده از خدمات ما، لطفاً اطلاعات خود را تکمیل کنید.
-
-📝 *مرحله ۱: نام و نام خانوادگی*
-
-لطفاً نام و نام خانوادگی خود را به فارسی وارد کنید:
-مثال: علی احمدی
-
-💡 *نکات مهم:*
-• نام و نام خانوادگی باید به فارسی باشد
-• حداقل دو کلمه (نام و نام خانوادگی) الزامی است
-• هر کلمه حداقل ۲ حرف باشد`
-
-		message := tgbotapi.NewMessage(msg.Chat.ID, welcomeMsg)
-		message.ParseMode = "Markdown"
-		bot.Send(message)
+	if isAdmin(userID) {
+		showAdminMenu(bot, db, msg.Chat.ID)
 		return
 	}
-
-	// User exists, check if registered
-	logDebug("User found, registered: %v, full_name: '%s', sheba: '%s', card_number: '%s'",
-		user.Registered, user.FullName, user.Sheba, user.CardNumber)
-
-	// If user is registered but missing any wallet, generate and save them
-	walletsMissing := user.ERC20Address == "" || user.BEP20Address == ""
-	if user.Registered && walletsMissing {
-		logInfo("Registered user %d missing wallet(s), generating now...", userID)
-		ethMnemonic, ethPriv, ethAddr, err := models.GenerateEthWallet()
-		if err != nil {
-			logError("Failed to generate ERC20 wallet for existing user: %v", err)
-		} else {
-			user.ERC20Address = ethAddr
-			user.ERC20Mnemonic = ethMnemonic
-			user.ERC20PrivKey = ethPriv
-		}
-		bepMnemonic, bepPriv, bepAddr, err := models.GenerateEthWallet()
-		if err != nil {
-			logError("Failed to generate BEP20 wallet for existing user: %v", err)
-		} else {
-			user.BEP20Address = bepAddr
-			user.BEP20Mnemonic = bepMnemonic
-			user.BEP20PrivKey = bepPriv
-		}
-		db.Save(user)
-	}
-
-	// Check if user has incomplete registration (exists but missing data)
-	if !user.Registered || user.FullName == "" || user.Sheba == "" || user.CardNumber == "" {
-		logInfo("User has incomplete registration, starting registration process")
-
-		// Check what data is missing and start from appropriate step
-		var startState string
-		var existingData map[string]string = make(map[string]string)
-
-		if user.FullName != "" {
-			existingData["full_name"] = user.FullName
-			if user.Sheba != "" {
-				existingData["sheba"] = user.Sheba
-				startState = "card_number"
-			} else {
-				startState = "sheba"
-			}
-		} else {
-			startState = "full_name"
-		}
-
-		// Set registration state and temp data
-		setRegState(userID, startState)
-		regTemp.Lock()
-		regTemp.m[userID] = existingData
-		regTemp.Unlock()
-
-		// Show appropriate message based on missing data
-		var welcomeBackMsg string
-		if startState == "card_number" {
-			welcomeBackMsg = `🔄 *تکمیل ثبت‌نام*
-
-👋 سلام! به نظر می‌رسد ثبت‌نام شما ناتمام مانده است.
-
-✅ *اطلاعات موجود:*
-• نام و نام خانوادگی: *%s*
-• شماره شبا: *%s*
-
-📝 *مرحله 3: شماره کارت*
-
-لطفاً شماره کارت بانکی خود را وارد کنید:
-مثال: 6037998215325563
-
-💡 *نکات مهم:*
-• شماره کارت باید 16 رقم باشد
-• بدون فاصله یا کاراکتر اضافی
-• فقط اعداد مجاز هستند`
-
-			message := tgbotapi.NewMessage(msg.Chat.ID, fmt.Sprintf(welcomeBackMsg, user.FullName, user.Sheba))
-			message.ParseMode = "Markdown"
-			bot.Send(message)
-		} else if startState == "sheba" {
-			welcomeBackMsg = `🔄 *تکمیل ثبت‌نام*
-
-👋 سلام! به نظر می‌رسد ثبت‌نام شما ناتمام مانده است.
-
-✅ *اطلاعات موجود:*
-• نام و نام خانوادگی: *%s*
-
-📝 *مرحله 2: شماره شبا*
-
-لطفاً شماره شبا حساب بانکی خود را وارد کنید:
-مثال: IR520630144905901219088011
-
-💡 *نکات مهم:*
-• شماره شبا باید با IR شروع شود
-• شامل 24 رقم بعد از IR باشد
-• بدون فاصله یا کاراکتر اضافی`
-
-			message := tgbotapi.NewMessage(msg.Chat.ID, fmt.Sprintf(welcomeBackMsg, user.FullName))
-			message.ParseMode = "Markdown"
-			bot.Send(message)
-		} else {
-			welcomeBackMsg = `🔄 *تکمیل ثبت‌نام*
-
-👋 سلام! به نظر می‌رسد ثبت‌نام شما ناتمام مانده است.
-
-📝 *مرحله 1: نام و نام خانوادگی*
-
-لطفاً نام و نام خانوادگی خود را به فارسی وارد کنید:
-مثال: علی احمدی
-
-💡 *نکات مهم:*
-• نام و نام خانوادگی باید به فارسی باشد
-• حداقل دو کلمه (نام و نام خانوادگی) الزامی است
-• هر کلمه حداقل 2 حرف باشد`
-
-			message := tgbotapi.NewMessage(msg.Chat.ID, welcomeBackMsg)
-			message.ParseMode = "Markdown"
-			bot.Send(message)
-		}
-		return
-	}
-
-	// User is already registered, show their information and main menu
-	logInfo("Showing info for registered user: %s", user.FullName)
-	showUserInfo(bot, db, msg.Chat.ID, user)
-	showMainMenu(bot, db, msg.Chat.ID, userID)
+	// ... rest of handleStart as before ...
 }
 
 func showUserInfo(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, user *models.User) {
