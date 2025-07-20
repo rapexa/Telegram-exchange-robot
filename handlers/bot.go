@@ -763,7 +763,9 @@ func handleMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 	case "🔗 لینک رفرال":
 		handleReferralLink(bot, db, msg)
 	case "💰 دریافت پاداش":
-		handleReward(bot, db, msg)
+		setRegState(userID, "reward_withdraw_amount")
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "🎁 لطفاً مبلغ برداشت پاداش را به عدد وارد کنید (USDT):"))
+		return
 	case "⬅️ بازگشت":
 		showMainMenu(bot, db, msg.Chat.ID, userID)
 	default:
