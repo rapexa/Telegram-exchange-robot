@@ -561,14 +561,15 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 			return true
 		}
 		user, _ := getUserByTelegramID(db, userID)
-		// Check balance
-		if user == nil || user.Balance < amount {
+		// Calculate confirmed balance
+		var depositSum, withdrawSum float64
+		db.Model(&models.Transaction{}).Where("user_id = ? AND type = ? AND status = ?", user.ID, "deposit", "confirmed").Select("COALESCE(SUM(amount),0)").Scan(&depositSum)
+		db.Model(&models.Transaction{}).Where("user_id = ? AND type = ? AND status = ?", user.ID, "withdraw", "confirmed").Select("COALESCE(SUM(amount),0)").Scan(&withdrawSum)
+		balance := depositSum - withdrawSum
+		if user == nil || balance < amount {
 			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ موجودی کافی نیست."))
 			return true
 		}
-		// Subtract from virtual balance
-		user.Balance -= amount
-		db.Save(user)
 		// Create pending transaction
 		tx := models.Transaction{
 			UserID: user.ID,
