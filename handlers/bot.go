@@ -1821,12 +1821,12 @@ func showAllPendingWithdrawals(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) 
 
 func showUserDepositsForTrade(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 	userID := int64(msg.From.ID)
-	log.Printf("userID: %d", userID)
+	fmt.println("userID: %d", userID)
 	var deposits []models.Transaction
 	db.Where("user_id = ? AND type = ? AND status = ?", userID, "deposit", "confirmed").Find(&deposits)
-	log.Printf("deposits found: %d", len(deposits))
+	fmt.println("deposits found: %d", len(deposits))
 	for _, tx := range deposits {
-		log.Printf("tx id: %d, type: %s, status: %s, trade_count: %d", tx.ID, tx.Type, tx.Status, tx.TradeCount)
+		fmt.println("tx id: %d, type: %s, status: %s, trade_count: %d", tx.ID, tx.Type, tx.Status, tx.TradeCount)
 	}
 	if len(deposits) == 0 {
 		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "هیچ واریزی قابل ترید ندارید."))
