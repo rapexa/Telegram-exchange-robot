@@ -187,7 +187,7 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB) {
 							user.ReferralReward += tx.Amount
 							db.Save(&user)
 						}
-						bot.Send(tgbotapi.NewMessage(user.TelegramID, "❌ برداشت شما رد شد و مبلغ به حساب شما برگشت."))
+						bot.Send(tgbotapi.NewMessage(user.TelegramID, fmt.Sprintf("❌ برداشت شما به مبلغ %.2f USDT لغو شد و مبلغ به حساب شما برگشت.", tx.Amount)))
 						bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "رد شد"))
 					}
 					continue
@@ -1568,6 +1568,8 @@ func showTransactionHistory(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Mes
 			statusFa = "✅ تایید شده"
 		} else if tx.Status == "failed" {
 			statusFa = "❌ ناموفق"
+		} else if tx.Status == "canceled" {
+			statusFa = "❌ لغو شده"
 		}
 
 		// Format transaction date
