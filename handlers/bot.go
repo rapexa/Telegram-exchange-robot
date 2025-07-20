@@ -1554,6 +1554,9 @@ func showTransactionHistory(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Mes
 		typeFa := "💳 واریز"
 		if tx.Type == "withdraw" {
 			typeFa = "💵 برداشت"
+		} else if tx.Type == "reward_withdraw" {
+				typeFa = "🎁 برداشت پاداش"
+		}
 		}
 
 		networkFa := ""
