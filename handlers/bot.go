@@ -3,6 +3,7 @@ package handlers
 import (
 	"fmt"
 	"log"
+	"strconv"
 	"sync"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -553,6 +554,78 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 		showMainMenu(bot, db, msg.Chat.ID, userID)
 		return true
 	}
+	if state == "withdraw_amount" {
+		amount, err := strconv.ParseFloat(msg.Text, 64)
+		if err != nil || amount <= 0 {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ مبلغ نامعتبر است. لطفاً فقط عدد وارد کنید."))
+			return true
+		}
+		user, _ := getUserByTelegramID(db, userID)
+		// Check balance
+		if user == nil || user.Balance < amount {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ موجودی کافی نیست."))
+			return true
+		}
+		// Subtract from virtual balance
+		user.Balance -= amount
+		db.Save(user)
+		// Create pending transaction
+		tx := models.Transaction{
+			UserID: user.ID,
+			Type:   "withdraw",
+			Amount: amount,
+			Status: "pending",
+		}
+		db.Create(&tx)
+		// Notify admin
+		adminMsg := fmt.Sprintf("درخواست برداشت جدید:\n\nکاربر: %s (%d)\nمبلغ: %.2f USDT", user.FullName, user.TelegramID, amount)
+		adminBtns := tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("پرداخت شد", fmt.Sprintf("approve_withdraw_%d", tx.ID)),
+				tgbotapi.NewInlineKeyboardButtonData("رد شد", fmt.Sprintf("reject_withdraw_%d", tx.ID)),
+			),
+		)
+		msgToAdmin := tgbotapi.NewMessage(adminUserID, adminMsg)
+		msgToAdmin.ReplyMarkup = adminBtns
+		bot.Send(msgToAdmin)
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "✅ درخواست برداشت ثبت شد و در انتظار تایید ادمین است."))
+		clearRegState(userID)
+		return true
+	}
+	if state == "reward_withdraw_amount" {
+		amount, err := strconv.ParseFloat(msg.Text, 64)
+		if err != nil || amount <= 0 {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ مبلغ نامعتبر است. لطفاً فقط عدد وارد کنید."))
+			return true
+		}
+		user, _ := getUserByTelegramID(db, userID)
+		if user == nil || user.ReferralReward < amount {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ موجودی پاداش کافی نیست."))
+			return true
+		}
+		user.ReferralReward -= amount
+		db.Save(user)
+		tx := models.Transaction{
+			UserID: user.ID,
+			Type:   "reward_withdraw",
+			Amount: amount,
+			Status: "pending",
+		}
+		db.Create(&tx)
+		adminMsg := fmt.Sprintf("درخواست برداشت پاداش:\n\nکاربر: %s (%d)\nمبلغ: %.2f USDT", user.FullName, user.TelegramID, amount)
+		adminBtns := tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("پرداخت شد", fmt.Sprintf("approve_withdraw_%d", tx.ID)),
+				tgbotapi.NewInlineKeyboardButtonData("رد شد", fmt.Sprintf("reject_withdraw_%d", tx.ID)),
+			),
+		)
+		msgToAdmin := tgbotapi.NewMessage(adminUserID, adminMsg)
+		msgToAdmin.ReplyMarkup = adminBtns
+		bot.Send(msgToAdmin)
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "✅ درخواست برداشت پاداش ثبت شد و در انتظار تایید ادمین است."))
+		clearRegState(userID)
+		return true
+	}
 	return false
 }
 
@@ -738,7 +811,13 @@ func handleSubmenuActions(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Messa
 
 	switch msg.Text {
 	case "💵 برداشت":
-		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "💵 منوی برداشت:\n\nاین قابلیت به زودی اضافه خواهد شد."))
+		setRegState(userID, "withdraw_amount")
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "💵 لطفاً مبلغ برداشت را به عدد وارد کنید (USDT):"))
+		return
+	case "💰 دریافت پاداش":
+		setRegState(userID, "reward_withdraw_amount")
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "🎁 لطفاً مبلغ برداشت پاداش را به عدد وارد کنید (USDT):"))
+		return
 	case "📋 تاریخچه":
 		showTransactionHistory(bot, db, msg)
 		return
@@ -747,9 +826,6 @@ func handleSubmenuActions(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Messa
 		return
 	case "🔗 لینک رفرال":
 		handleReferralLink(bot, db, msg)
-		return
-	case "💰 دریافت پاداش":
-		handleReward(bot, db, msg)
 		return
 	case "📈 آمار شخصی":
 		showPersonalStats(bot, db, msg)
