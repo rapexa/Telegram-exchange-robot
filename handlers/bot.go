@@ -3,9 +3,11 @@ package handlers
 import (
 	"fmt"
 	"log"
+	"math/rand/v2"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"gorm.io/gorm"
@@ -157,9 +159,97 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB) {
 		// Handle CallbackQuery first!
 		if update.CallbackQuery != nil {
 			userID := int64(update.CallbackQuery.From.ID)
+			// --- In CallbackQuery handler for request_trade_ ---
+			if strings.HasPrefix(update.CallbackQuery.Data, "request_trade_") {
+				txIDstr := strings.TrimPrefix(update.CallbackQuery.Data, "request_trade_")
+				txID, _ := strconv.Atoi(txIDstr)
+				var tx models.Transaction
+				if err := db.First(&tx, txID).Error; err == nil && tx.TradeCount < 3 {
+					tradeIndex := tx.TradeCount + 1
+					// خواندن رنج درصد از تنظیمات ادمین
+					var tr models.TradeRange
+					if err := db.Where("trade_index = ?", tradeIndex).First(&tr).Error; err != nil {
+						bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "رنج درصد برای این معامله تنظیم نشده است!"))
+						continue
+					}
+					// تولید درصد رندوم در بازه
+					percent := tr.MinPercent + rand.Float64()*(tr.MaxPercent-tr.MinPercent)
+					// محاسبه مبلغ جدید
+					var lastAmount float64 = tx.Amount
+					var lastTrade models.TradeResult
+					db.Where("transaction_id = ? AND user_id = ?", tx.ID, tx.UserID).Order("trade_index desc").First(&lastTrade)
+					if lastTrade.ID != 0 {
+						lastAmount = lastTrade.ResultAmount
+					}
+					resultAmount := lastAmount * (1 + percent/100)
+					// ذخیره نتیجه ترید
+					tradeResult := models.TradeResult{
+						TransactionID: tx.ID,
+						UserID:        tx.UserID,
+						TradeIndex:    tradeIndex,
+						Percent:       percent,
+						ResultAmount:  resultAmount,
+						CreatedAt:     time.Now(),
+					}
+					db.Create(&tradeResult)
+					tx.TradeCount++
+					db.Save(&tx)
+					// پیام به کاربر: بعد از ۳۰ دقیقه نتیجه را ارسال کن
+					go func(chatID int64, amount float64, percent float64, resultAmount float64, tradeIndex int) {
+						time.Sleep(30 * time.Minute)
+						msg := fmt.Sprintf("نتیجه معامله %d شما: %+.2f%%\nمبلغ جدید: %.2f USDT", tradeIndex, percent, resultAmount)
+						bot.Send(tgbotapi.NewMessage(chatID, msg))
+					}(update.CallbackQuery.From.ID, lastAmount, percent, resultAmount, tradeIndex)
+					bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, fmt.Sprintf("درخواست معامله %d ثبت شد. نتیجه تا ۳۰ دقیقه دیگر اعلام می‌شود.", tradeIndex)))
+				} else {
+					bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "امکان ترید بیشتر وجود ندارد"))
+				}
+				continue
+			}
+			// --- Add a command for user to see trade results for a deposit ---
+			if update.Message != nil && strings.HasPrefix(update.Message.Text, "/trades ") {
+				txIDstr := strings.TrimPrefix(update.Message.Text, "/trades ")
+				txID, _ := strconv.Atoi(txIDstr)
+				var trades []models.TradeResult
+				db.Where("transaction_id = ? AND user_id = ?", txID, update.Message.From.ID).Order("trade_index").Find(&trades)
+				if len(trades) == 0 {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "برای این واریز هیچ معامله‌ای انجام نشده است."))
+				} else {
+					msg := "نتایج معاملات این واریز:\n"
+					for _, t := range trades {
+						msg += fmt.Sprintf("معامله %d: %+.2f%% → %.2f USDT\n", t.TradeIndex, t.Percent, t.ResultAmount)
+					}
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, msg))
+				}
+				continue
+			}
 			if isAdmin(userID) {
 				state := adminBroadcastState[userID]
 				data := update.CallbackQuery.Data
+				// --- Add admin command handler for /settrade ---
+				if update.Message != nil && update.Message.IsCommand() {
+					if update.Message.Command() == "settrade" {
+						args := strings.Fields(update.Message.CommandArguments())
+						if len(args) == 3 {
+							tradeIndex, _ := strconv.Atoi(args[0])
+							minPercent, _ := strconv.ParseFloat(args[1], 64)
+							maxPercent, _ := strconv.ParseFloat(args[2], 64)
+							var tr models.TradeRange
+							if err := db.Where("trade_index = ?", tradeIndex).First(&tr).Error; err == nil {
+								tr.MinPercent = minPercent
+								tr.MaxPercent = maxPercent
+								db.Save(&tr)
+							} else {
+								tr = models.TradeRange{TradeIndex: tradeIndex, MinPercent: minPercent, MaxPercent: maxPercent}
+								db.Create(&tr)
+							}
+							bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("رنج معامله %d به %.2f تا %.2f تنظیم شد.", tradeIndex, minPercent, maxPercent)))
+						} else {
+							bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "فرمت دستور: /settrade [شماره معامله] [حداقل درصد] [حداکثر درصد]"))
+						}
+						continue
+					}
+				}
 				if strings.HasPrefix(data, "approve_withdraw_") {
 					txIDstr := strings.TrimPrefix(data, "approve_withdraw_")
 					txID, _ := strconv.Atoi(txIDstr)
@@ -812,6 +902,9 @@ func handleMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "برای پشتیبانی با ادمین تماس بگیرید: @YourAdminUsername"))
 	case "🔗 لینک رفرال":
 		handleReferralLink(bot, db, msg)
+	case "ترید با 🤖":
+		showUserDepositsForTrade(bot, db, msg)
+		return
 	case "⬅️ بازگشت":
 		showMainMenu(bot, db, msg.Chat.ID, userID)
 	default:
@@ -963,6 +1056,9 @@ func showMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64)
 		),
 		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("🆘 پشتیبانی"),
+		),
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("ترید با 🤖"),
 		),
 	)
 	menu.ResizeKeyboard = true
@@ -1720,5 +1816,34 @@ func showAllPendingWithdrawals(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) 
 		m := tgbotapi.NewMessage(chatID, msgText)
 		m.ReplyMarkup = adminBtns
 		bot.Send(m)
+	}
+}
+
+func showUserDepositsForTrade(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
+	userID := int64(msg.From.ID)
+	var deposits []models.Transaction
+	db.Where("user_id = ? AND type = ? AND status = ?", userID, "deposit", "confirmed").Find(&deposits)
+	if len(deposits) == 0 {
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "هیچ واریزی قابل ترید ندارید."))
+		return
+	}
+	found := false
+	for _, tx := range deposits {
+		if tx.TradeCount >= 3 {
+			continue
+		}
+		found = true
+		tradeBtn := tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData(fmt.Sprintf("درخواست ترید (%d/3)", tx.TradeCount), fmt.Sprintf("request_trade_%d", tx.ID)),
+			),
+		)
+		msgText := fmt.Sprintf("واریز: %.2f USDT\nتاریخ: %s", tx.Amount, tx.CreatedAt.Format("02/01 15:04"))
+		m := tgbotapi.NewMessage(msg.Chat.ID, msgText)
+		m.ReplyMarkup = tradeBtn
+		bot.Send(m)
+	}
+	if !found {
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "همه واریزهای شما قبلاً ۳ بار ترید شده‌اند."))
 	}
 }

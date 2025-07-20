@@ -17,17 +17,30 @@ const (
 	BEP20USDTContract = "0x55d398326f99059fF775485246999027B3197955"
 )
 
+type TradeResult struct {
+	ID            uint `gorm:"primaryKey"`
+	TransactionID uint // به کدام واریز مربوط است
+	UserID        uint
+	TradeIndex    int     // شماره معامله (۱، ۲، ۳)
+	Percent       float64 // درصد سود/ضرر
+	ResultAmount  float64 // مبلغ نهایی بعد از این ترید
+	CreatedAt     time.Time
+}
+
+// ... existing code ...
+
 type Transaction struct {
-	ID        uint   `gorm:"primaryKey"`
-	UserID    uint   `gorm:"index"`
-	Type      string // deposit or withdraw
-	Network   string // ERC20 or BEP20
-	Amount    float64
-	TxHash    string `gorm:"size:128"`
-	Status    string // pending, confirmed, failed
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	DeletedAt gorm.DeletedAt `gorm:"index"`
+	ID         uint   `gorm:"primaryKey"`
+	UserID     uint   `gorm:"index"`
+	Type       string // deposit or withdraw
+	Network    string // ERC20 or BEP20
+	Amount     float64
+	TxHash     string `gorm:"size:128"`
+	Status     string // pending, confirmed, failed
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+	DeletedAt  gorm.DeletedAt `gorm:"index"`
+	TradeCount int            `gorm:"default:0"` // تعداد دفعات ترید برای این تراکنش
 }
 
 // Etherscan Multichain API endpoint
