@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"strings"
 	"sync"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -38,6 +39,9 @@ func showAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) {
 		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("📢 پیام همگانی"),
 		),
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("📋 مدیریت برداشت‌ها"),
+		),
 	)
 	menu.ResizeKeyboard = true
 	menu.OneTimeKeyboard = false
@@ -70,6 +74,9 @@ func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 		adminBroadcastState[msg.From.ID] = "awaiting_broadcast"
 		m := tgbotapi.NewMessage(msg.Chat.ID, "✏️ پیام خود را برای ارسال همگانی بنویسید:")
 		bot.Send(m)
+		return
+	case "📋 مدیریت برداشت‌ها":
+		showAllPendingWithdrawals(bot, db, msg.Chat.ID)
 		return
 	case "⬅️ بازگشت":
 		showMainMenu(bot, db, msg.Chat.ID, msg.From.ID)
@@ -152,6 +159,39 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB) {
 			userID := int64(update.CallbackQuery.From.ID)
 			if isAdmin(userID) {
 				state := adminBroadcastState[userID]
+				data := update.CallbackQuery.Data
+				if strings.HasPrefix(data, "approve_withdraw_") {
+					txIDstr := strings.TrimPrefix(data, "approve_withdraw_")
+					txID, _ := strconv.Atoi(txIDstr)
+					var tx models.Transaction
+					if err := db.First(&tx, txID).Error; err == nil && tx.Status == "pending" {
+						tx.Status = "confirmed"
+						db.Save(&tx)
+						var user models.User
+						db.First(&user, tx.UserID)
+						bot.Send(tgbotapi.NewMessage(user.TelegramID, "✅ برداشت شما تایید و پرداخت شد."))
+						bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "پرداخت شد"))
+					}
+					continue
+				}
+				if strings.HasPrefix(data, "reject_withdraw_") {
+					txIDstr := strings.TrimPrefix(data, "reject_withdraw_")
+					txID, _ := strconv.Atoi(txIDstr)
+					var tx models.Transaction
+					if err := db.First(&tx, txID).Error; err == nil && tx.Status == "pending" {
+						tx.Status = "canceled"
+						db.Save(&tx)
+						var user models.User
+						db.First(&user, tx.UserID)
+						if tx.Type == "reward_withdraw" {
+							user.ReferralReward += tx.Amount
+							db.Save(&user)
+						}
+						bot.Send(tgbotapi.NewMessage(user.TelegramID, "❌ برداشت شما رد شد و مبلغ به حساب شما برگشت."))
+						bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "رد شد"))
+					}
+					continue
+				}
 				if state == "confirm_broadcast" {
 					data := update.CallbackQuery.Data
 					if data == "broadcast_send" {
@@ -1650,4 +1690,31 @@ func confirmBroadcastKeyboard() tgbotapi.InlineKeyboardMarkup {
 			tgbotapi.NewInlineKeyboardButtonData("لغو ارسال", "broadcast_cancel"),
 		),
 	)
+}
+
+func showAllPendingWithdrawals(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) {
+	var txs []models.Transaction
+	db.Where("status = ?", "pending").Order("created_at desc").Find(&txs)
+	if len(txs) == 0 {
+		bot.Send(tgbotapi.NewMessage(chatID, "⏳ هیچ برداشت در انتظاری وجود ندارد."))
+		return
+	}
+	for _, tx := range txs {
+		var user models.User
+		db.First(&user, tx.UserID)
+		typeFa := "💵 برداشت"
+		if tx.Type == "reward_withdraw" {
+			typeFa = "🎁 برداشت پاداش"
+		}
+		msgText := fmt.Sprintf("%s - %.2f USDT\nکاربر: %s (%d)\nتاریخ: %s", typeFa, tx.Amount, user.FullName, user.TelegramID, tx.CreatedAt.Format("02/01 15:04"))
+		adminBtns := tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("پرداخت شد", fmt.Sprintf("approve_withdraw_%d", tx.ID)),
+				tgbotapi.NewInlineKeyboardButtonData("رد شد", fmt.Sprintf("reject_withdraw_%d", tx.ID)),
+			),
+		)
+		m := tgbotapi.NewMessage(chatID, msgText)
+		m.ReplyMarkup = adminBtns
+		bot.Send(m)
+	}
 }
