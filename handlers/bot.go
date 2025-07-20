@@ -555,6 +555,11 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 		return true
 	}
 	if state == "withdraw_amount" {
+		if msg.Text == "لغو برداشت" {
+			clearRegState(userID)
+			showMainMenu(bot, db, msg.Chat.ID, userID)
+			return true
+		}
 		amount, err := strconv.ParseFloat(msg.Text, 64)
 		if err != nil || amount <= 0 {
 			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ مبلغ نامعتبر است. لطفاً فقط عدد وارد کنید."))
@@ -594,6 +599,11 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 		return true
 	}
 	if state == "reward_withdraw_amount" {
+		if msg.Text == "لغو برداشت" {
+			clearRegState(userID)
+			showMainMenu(bot, db, msg.Chat.ID, userID)
+			return true
+		}
 		amount, err := strconv.ParseFloat(msg.Text, 64)
 		if err != nil || amount <= 0 {
 			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ مبلغ نامعتبر است. لطفاً فقط عدد وارد کنید."))
@@ -815,11 +825,25 @@ func handleSubmenuActions(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Messa
 	switch msg.Text {
 	case "💵 برداشت":
 		setRegState(userID, "withdraw_amount")
-		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "💵 لطفاً مبلغ برداشت را به عدد وارد کنید (USDT):"))
+		cancelKeyboard := tgbotapi.NewReplyKeyboard(
+			tgbotapi.NewKeyboardButtonRow(
+				tgbotapi.NewKeyboardButton("لغو برداشت"),
+			),
+		)
+		msgSend := tgbotapi.NewMessage(msg.Chat.ID, "💵 لطفاً مبلغ برداشت را به عدد وارد کنید (USDT):")
+		msgSend.ReplyMarkup = cancelKeyboard
+		bot.Send(msgSend)
 		return
 	case "💰 دریافت پاداش":
 		setRegState(userID, "reward_withdraw_amount")
-		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "🎁 لطفاً مبلغ برداشت پاداش را به عدد وارد کنید (USDT):"))
+		cancelKeyboard := tgbotapi.NewReplyKeyboard(
+			tgbotapi.NewKeyboardButtonRow(
+				tgbotapi.NewKeyboardButton("لغو برداشت"),
+			),
+		)
+		msgSend := tgbotapi.NewMessage(msg.Chat.ID, "🎁 لطفاً مبلغ برداشت پاداش را به عدد وارد کنید (USDT):")
+		msgSend.ReplyMarkup = cancelKeyboard
+		bot.Send(msgSend)
 		return
 	case "📋 تاریخچه":
 		showTransactionHistory(bot, db, msg)
