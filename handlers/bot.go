@@ -48,7 +48,17 @@ func showAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) {
 	menu.ResizeKeyboard = true
 	menu.OneTimeKeyboard = false
 
-	msg := tgbotapi.NewMessage(chatID, "🛠️ <b>پنل مدیریت</b>\n\nیکی از گزینه‌های زیر را انتخاب کنید:")
+	helpText := `🛠️ <b>پنل مدیریت</b>
+
+<b>دستورات ادمین:</b>
+
+📊 <b>/settrade</b> [شماره معامله] [حداقل درصد] [حداکثر درصد]
+مثال: <code>/settrade 1 1 2</code>
+این دستور بازه درصد سود/ضرر معامله اول را بین ۱ تا ۲ درصد تنظیم می‌کند.
+
+یکی از گزینه‌های زیر را انتخاب کنید:`
+
+	msg := tgbotapi.NewMessage(chatID, helpText)
 	msg.ReplyMarkup = menu
 	msg.ParseMode = "HTML"
 	bot.Send(msg)
@@ -156,6 +166,30 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB) {
 	logInfo("🔄 Bot update channel started, waiting for messages...")
 
 	for update := range updates {
+		// --- هندل دستور ادمین برای /settrade ---
+		if update.Message != nil && update.Message.IsCommand() && isAdmin(int64(update.Message.From.ID)) {
+			if update.Message.Command() == "settrade" {
+				args := strings.Fields(update.Message.CommandArguments())
+				if len(args) == 3 {
+					tradeIndex, _ := strconv.Atoi(args[0])
+					minPercent, _ := strconv.ParseFloat(args[1], 64)
+					maxPercent, _ := strconv.ParseFloat(args[2], 64)
+					var tr models.TradeRange
+					if err := db.Where("trade_index = ?", tradeIndex).First(&tr).Error; err == nil {
+						tr.MinPercent = minPercent
+						tr.MaxPercent = maxPercent
+						db.Save(&tr)
+					} else {
+						tr = models.TradeRange{TradeIndex: tradeIndex, MinPercent: minPercent, MaxPercent: maxPercent}
+						db.Create(&tr)
+					}
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("رنج معامله %d به %.2f تا %.2f تنظیم شد.", tradeIndex, minPercent, maxPercent)))
+				} else {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "فرمت دستور: /settrade [شماره معامله] [حداقل درصد] [حداکثر درصد]"))
+				}
+				continue
+			}
+		}
 		// Handle CallbackQuery first!
 		if update.CallbackQuery != nil {
 			userID := int64(update.CallbackQuery.From.ID)
@@ -226,30 +260,6 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB) {
 			if isAdmin(userID) {
 				state := adminBroadcastState[userID]
 				data := update.CallbackQuery.Data
-				// --- Add admin command handler for /settrade ---
-				if update.Message != nil && update.Message.IsCommand() {
-					if update.Message.Command() == "settrade" {
-						args := strings.Fields(update.Message.CommandArguments())
-						if len(args) == 3 {
-							tradeIndex, _ := strconv.Atoi(args[0])
-							minPercent, _ := strconv.ParseFloat(args[1], 64)
-							maxPercent, _ := strconv.ParseFloat(args[2], 64)
-							var tr models.TradeRange
-							if err := db.Where("trade_index = ?", tradeIndex).First(&tr).Error; err == nil {
-								tr.MinPercent = minPercent
-								tr.MaxPercent = maxPercent
-								db.Save(&tr)
-							} else {
-								tr = models.TradeRange{TradeIndex: tradeIndex, MinPercent: minPercent, MaxPercent: maxPercent}
-								db.Create(&tr)
-							}
-							bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("رنج معامله %d به %.2f تا %.2f تنظیم شد.", tradeIndex, minPercent, maxPercent)))
-						} else {
-							bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "فرمت دستور: /settrade [شماره معامله] [حداقل درصد] [حداکثر درصد]"))
-						}
-						continue
-					}
-				}
 				if strings.HasPrefix(data, "approve_withdraw_") {
 					txIDstr := strings.TrimPrefix(data, "approve_withdraw_")
 					txID, _ := strconv.Atoi(txIDstr)
@@ -1074,6 +1084,9 @@ func showMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64)
 • موجودی پاداش: %.2f USDT
 • تعداد زیرمجموعه: %d کاربر
 
+💡 دستورات ربات:
+	/trades [id] - مشاهده نتایج ترید برای یک واریز
+	
 💡 *گزینه‌های موجود:*
 💰 *کیف پول* - مدیریت موجودی و تراکنش‌ها
 🎁 *پاداش* - سیستم رفرال و پاداش‌ها
