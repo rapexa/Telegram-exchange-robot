@@ -232,7 +232,7 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB) {
 					db.Save(&tx)
 					// پیام به کاربر: بعد از ۳۰ دقیقه نتیجه را ارسال کن
 					go func(chatID int64, amount float64, percent float64, resultAmount float64, tradeIndex int) {
-						time.Sleep(30 * time.Minute)
+						time.Sleep(1 * time.Second) //TODO: change this to 30 minute later
 						msg := fmt.Sprintf("نتیجه معامله %d شما: %+.2f%%\nمبلغ جدید: %.2f USDT", tradeIndex, percent, resultAmount)
 						bot.Send(tgbotapi.NewMessage(chatID, msg))
 					}(update.CallbackQuery.From.ID, lastAmount, percent, resultAmount, tradeIndex)
