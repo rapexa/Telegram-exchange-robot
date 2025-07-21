@@ -1132,7 +1132,6 @@ func showMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64)
 💰 *خلاصه موجودی:*
 • موجودی کل: %.2f USDT
 • موجودی بلاکچین: %.2f USDT
-• سود/ضرر ترید: %.2f USDT
 • پاداش: %.2f USDT
 • تعداد زیرمجموعه: %d کاربر
 
@@ -1144,7 +1143,7 @@ func showMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64)
 🎁 *پاداش* - سیستم رفرال و پاداش‌ها
 📊 *آمار* - آمار شخصی و زیرمجموعه‌ها
 🆘 *پشتیبانی* - ارتباط با پشتیبانی`,
-		user.FullName, totalBalance, blockchainBalance, tradeBalance, rewardBalance, referralCount)
+		user.FullName, totalBalance, blockchainBalance, rewardBalance, referralCount)
 
 	msg := tgbotapi.NewMessage(chatID, mainMsg)
 	msg.ReplyMarkup = menu
@@ -1196,7 +1195,6 @@ func showWalletMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int6
 
 �� *جزئیات موجودی:*
 • موجودی بلاکچین: %.2f USDT
-• سود/ضرر ترید: %.2f USDT
 • پاداش: %.2f USDT
 
 • 🔵 *ERC20 (اتریوم):* %.2f USDT
@@ -1207,7 +1205,7 @@ func showWalletMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int6
 📋 *تاریخچه* - مشاهده تراکنش‌های قبلی
 💳 *واریز USDT* - واریز ارز دیجیتال
 ⬅️ *بازگشت* - بازگشت به منوی اصلی`,
-		totalBalance, blockchainBalance, tradeBalance, rewardBalance, erc20Balance, bep20Balance)
+		totalBalance, blockchainBalance, rewardBalance, erc20Balance, bep20Balance)
 
 	msg := tgbotapi.NewMessage(chatID, balanceMsg)
 	msg.ReplyMarkup = menu
