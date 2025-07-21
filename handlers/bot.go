@@ -1615,6 +1615,9 @@ func showTransactionHistory(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Mes
 	var depositCount, withdrawCount int64
 
 	for _, tx := range txs {
+		if tx.Status != "confirmed" {
+			continue
+		}
 		if tx.Type == "deposit" {
 			totalDeposits += tx.Amount
 			depositCount++
