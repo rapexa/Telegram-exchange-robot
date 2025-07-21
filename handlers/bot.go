@@ -1611,8 +1611,8 @@ func showTransactionHistory(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Mes
 	}
 
 	// Calculate summary statistics
-	var totalDeposits, totalWithdrawals float64
-	var depositCount, withdrawCount int64
+	var totalDeposits, totalWithdrawals, totalRewardWithdrawals float64
+	var depositCount, withdrawCount, rewardWithdrawCount int64
 
 	for _, tx := range txs {
 		if tx.Status != "confirmed" {
@@ -1624,6 +1624,9 @@ func showTransactionHistory(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Mes
 		} else if tx.Type == "withdraw" {
 			totalWithdrawals += tx.Amount
 			withdrawCount++
+		} else if tx.Type == "reward_withdraw" {
+			totalRewardWithdrawals += tx.Amount
+			rewardWithdrawCount++
 		}
 	}
 
@@ -1632,8 +1635,9 @@ func showTransactionHistory(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Mes
 📊 *خلاصه (آخرین ۱۰ تراکنش):*
 • کل واریز: %.2f USDT (%d تراکنش)
 • کل برداشت: %.2f USDT (%d تراکنش)
+• کل برداشت پاداش: %.2f USDT (%d تراکنش)
 
-📋 *جزئیات تراکنش‌ها:*`, totalDeposits, depositCount, totalWithdrawals, withdrawCount)
+📋 *جزئیات تراکنش‌ها:*`, totalDeposits, depositCount, totalWithdrawals, withdrawCount, totalRewardWithdrawals, rewardWithdrawCount)
 
 	for i, tx := range txs {
 		typeFa := "💳 واریز"
