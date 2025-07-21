@@ -121,6 +121,14 @@ func main() {
 	logInfo("🚀 Bot is now running and ready to receive messages!")
 	logInfo(separator)
 
+	// به‌روزرسانی موجودی کاربران از تراکنش‌های قبلی
+	logInfo("💰 Updating user balances from existing transactions...")
+	if err := models.UpdateUserBalancesFromTransactions(db); err != nil {
+		logError("Failed to update user balances: %v", err)
+	} else {
+		logInfo("✅ User balances updated successfully")
+	}
+
 	// Run blockchain deposit sync once at startup
 	err = models.SyncAllUserDeposits(db, cfg.EtherscanAPIKey)
 	if err != nil {

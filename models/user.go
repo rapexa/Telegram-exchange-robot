@@ -22,13 +22,18 @@ type User struct {
 	ReferralReward float64 `gorm:"default:0"` // Total earned from referrals
 
 	// Wallet fields (plain text)
-	ERC20Address  string `gorm:"size:64"`
-	ERC20Mnemonic string `gorm:"size:256"`
-	ERC20PrivKey  string `gorm:"size:128"`
+	ERC20Address  string  `gorm:"size:64"`
+	ERC20Mnemonic string  `gorm:"size:256"`
+	ERC20PrivKey  string  `gorm:"size:128"`
+	ERC20Balance  float64 `gorm:"default:0"` // موجودی ERC20
 
-	BEP20Address  string `gorm:"size:64"`
-	BEP20Mnemonic string `gorm:"size:256"`
-	BEP20PrivKey  string `gorm:"size:128"`
+	BEP20Address  string  `gorm:"size:64"`
+	BEP20Mnemonic string  `gorm:"size:256"`
+	BEP20PrivKey  string  `gorm:"size:128"`
+	BEP20Balance  float64 `gorm:"default:0"` // موجودی BEP20
+
+	TradeBalance  float64 `gorm:"default:0"` // سود/ضرر تریدها (در ربات)
+	RewardBalance float64 `gorm:"default:0"` // پاداش‌ها (در ربات)
 }
 
 func logDebug(format string, v ...interface{}) {

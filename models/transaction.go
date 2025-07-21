@@ -115,6 +115,10 @@ func SyncAllUserDeposits(db *gorm.DB, apiKey string) error {
 								Status:  "confirmed",
 							}
 							db.Create(&t)
+
+							// به‌روزرسانی موجودی کاربر
+							user.ERC20Balance += amountFloat
+							db.Save(&user)
 						} else {
 							fmt.Printf("[DEBUG] ERC20 DEPOSIT: user_id=%d, address=%s, tx=%s, amount=%.6f -> SKIPPED (exists)\n", user.ID, user.ERC20Address, txHash, amountFloat)
 						}
@@ -134,6 +138,10 @@ func SyncAllUserDeposits(db *gorm.DB, apiKey string) error {
 								Status:  "confirmed",
 							}
 							db.Create(&t)
+
+							// به‌روزرسانی موجودی کاربر
+							user.ERC20Balance -= amountFloat
+							db.Save(&user)
 						} else {
 							fmt.Printf("[DEBUG] ERC20 WITHDRAW: user_id=%d, address=%s, tx=%s, amount=%.6f -> SKIPPED (exists)\n", user.ID, user.ERC20Address, txHash, amountFloat)
 						}
@@ -164,6 +172,10 @@ func SyncAllUserDeposits(db *gorm.DB, apiKey string) error {
 								Status:  "confirmed",
 							}
 							db.Create(&t)
+
+							// به‌روزرسانی موجودی کاربر
+							user.BEP20Balance += amountFloat
+							db.Save(&user)
 						} else {
 							fmt.Printf("[DEBUG] BEP20 DEPOSIT: user_id=%d, address=%s, tx=%s, amount=%.6f -> SKIPPED (exists)\n", user.ID, user.BEP20Address, txHash, amountFloat)
 						}
@@ -183,6 +195,10 @@ func SyncAllUserDeposits(db *gorm.DB, apiKey string) error {
 								Status:  "confirmed",
 							}
 							db.Create(&t)
+
+							// به‌روزرسانی موجودی کاربر
+							user.BEP20Balance -= amountFloat
+							db.Save(&user)
 						} else {
 							fmt.Printf("[DEBUG] BEP20 WITHDRAW: user_id=%d, address=%s, tx=%s, amount=%.6f -> SKIPPED (exists)\n", user.ID, user.BEP20Address, txHash, amountFloat)
 						}
@@ -213,4 +229,46 @@ func parseUSDTAmount(val string) float64 {
 		fmt.Printf("[DEBUG] parseUSDTAmount: raw value=%s, float=%.0f, amount=%.6f (6 decimals)\n", val, intVal, amount)
 	}
 	return amount
+}
+
+// UpdateUserBalancesFromTransactions محاسبه و به‌روزرسانی موجودی کاربران از تراکنش‌های قبلی
+func UpdateUserBalancesFromTransactions(db *gorm.DB) error {
+	var users []User
+	if err := db.Find(&users).Error; err != nil {
+		return err
+	}
+
+	for _, user := range users {
+		// محاسبه موجودی ERC20
+		var erc20Deposits, erc20Withdrawals float64
+		db.Model(&Transaction{}).
+			Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "ERC20", "deposit", "confirmed").
+			Select("COALESCE(SUM(amount), 0)").
+			Scan(&erc20Deposits)
+
+		db.Model(&Transaction{}).
+			Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "ERC20", "withdraw", "confirmed").
+			Select("COALESCE(SUM(amount), 0)").
+			Scan(&erc20Withdrawals)
+
+		// محاسبه موجودی BEP20
+		var bep20Deposits, bep20Withdrawals float64
+		db.Model(&Transaction{}).
+			Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "BEP20", "deposit", "confirmed").
+			Select("COALESCE(SUM(amount), 0)").
+			Scan(&bep20Deposits)
+
+		db.Model(&Transaction{}).
+			Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "BEP20", "withdraw", "confirmed").
+			Select("COALESCE(SUM(amount), 0)").
+			Scan(&bep20Withdrawals)
+
+		// به‌روزرسانی موجودی کاربر
+		user.ERC20Balance = erc20Deposits - erc20Withdrawals
+		user.BEP20Balance = bep20Deposits - bep20Withdrawals
+
+		db.Save(&user)
+	}
+
+	return nil
 }

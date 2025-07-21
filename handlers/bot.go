@@ -218,6 +218,40 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB) {
 						lastAmount = lastTrade.ResultAmount
 					}
 					resultAmount := lastAmount * (1 + percent/100)
+
+					// به‌روزرسانی سود/ضرر ترید در TradeBalance
+					var user models.User
+					if err := db.First(&user, tx.UserID).Error; err == nil {
+						profit := resultAmount - lastAmount
+						user.TradeBalance += profit
+						db.Save(&user)
+					}
+
+					// به‌روزرسانی موجودی کاربر
+					var user models.User
+					if err := db.First(&user, tx.UserID).Error; err == nil {
+						// کم کردن مبلغ قبلی از موجودی
+						if tx.Network == "ERC20" {
+							user.ERC20Balance -= lastAmount
+						} else if tx.Network == "BEP20" {
+							user.BEP20Balance -= lastAmount
+						}
+
+						// اضافه کردن مبلغ جدید به موجودی
+						if tx.Network == "ERC20" {
+							user.ERC20Balance += resultAmount
+						} else if tx.Network == "BEP20" {
+							user.BEP20Balance += resultAmount
+						}
+
+						db.Save(&user)
+					}
+
+					// به‌روزرسانی مبلغ تراکنش
+					tx.Amount = resultAmount
+					tx.TradeCount++
+					db.Save(&tx)
+
 					// ذخیره نتیجه ترید
 					tradeResult := models.TradeResult{
 						TransactionID: tx.ID,
@@ -228,9 +262,8 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB) {
 						CreatedAt:     time.Now(),
 					}
 					db.Create(&tradeResult)
-					tx.TradeCount++
-					db.Save(&tx)
-					// پیام به کاربر: بعد از ۳۰ دقیقه نتیجه را ارسال کن
+
+					// پیام به کاربر: بعد از ۱ ثانیه نتیجه را ارسال کن
 					go func(chatID int64, amount float64, percent float64, resultAmount float64, tradeIndex int) {
 						time.Sleep(1 * time.Second) //TODO: change this to 30 minute later
 						msg := fmt.Sprintf("نتیجه معامله %d شما: %+.2f%%\nمبلغ جدید: %.2f USDT", tradeIndex, percent, resultAmount)
@@ -267,10 +300,61 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB) {
 					txID, _ := strconv.Atoi(txIDstr)
 					var tx models.Transaction
 					if err := db.First(&tx, txID).Error; err == nil && tx.Status == "pending" {
-						tx.Status = "confirmed"
-						db.Save(&tx)
 						var user models.User
 						db.First(&user, tx.UserID)
+						amount := tx.Amount
+						remaining := amount
+
+						// 1. کم کردن از پاداش
+						if user.RewardBalance >= remaining {
+							user.RewardBalance -= remaining
+							remaining = 0
+						} else {
+							remaining -= user.RewardBalance
+							user.RewardBalance = 0
+						}
+
+						// 2. کم کردن از سود/ضرر ترید
+						if remaining > 0 {
+							if user.TradeBalance >= remaining {
+								user.TradeBalance -= remaining
+								remaining = 0
+							} else {
+								remaining -= user.TradeBalance
+								user.TradeBalance = 0
+							}
+						}
+
+						// 3. کم کردن از موجودی بلاکچین (اول ERC20 بعد BEP20)
+						if remaining > 0 {
+							if user.ERC20Balance >= remaining {
+								user.ERC20Balance -= remaining
+								remaining = 0
+							} else {
+								remaining -= user.ERC20Balance
+								user.ERC20Balance = 0
+							}
+						}
+						if remaining > 0 {
+							if user.BEP20Balance >= remaining {
+								user.BEP20Balance -= remaining
+								remaining = 0
+							} else {
+								remaining -= user.BEP20Balance
+								user.BEP20Balance = 0
+							}
+						}
+
+						if remaining > 0 {
+							// موجودی کافی نیست
+							bot.Send(tgbotapi.NewMessage(user.TelegramID, "❌ موجودی کافی برای برداشت وجود ندارد."))
+							bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "موجودی کافی نیست"))
+							continue
+						}
+
+						db.Save(&user)
+						tx.Status = "confirmed"
+						db.Save(&tx)
 						bot.Send(tgbotapi.NewMessage(user.TelegramID, "✅ برداشت شما تایید و پرداخت شد."))
 						bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "پرداخت شد"))
 					}
@@ -792,38 +876,9 @@ func handleStart(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 }
 
 func showUserInfo(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, user *models.User) {
-	// Calculate USDT balances for each network
-	var erc20Balance, bep20Balance float64
-
-	// Calculate ERC20 balance (deposits - withdrawals)
-	var erc20Deposits, erc20Withdrawals float64
-	db.Model(&models.Transaction{}).
-		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "ERC20", "deposit", "confirmed").
-		Select("COALESCE(SUM(amount), 0)").
-		Scan(&erc20Deposits)
-
-	db.Model(&models.Transaction{}).
-		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "ERC20", "withdraw", "confirmed").
-		Select("COALESCE(SUM(amount), 0)").
-		Scan(&erc20Withdrawals)
-
-	erc20Balance = erc20Deposits - erc20Withdrawals
-
-	// Calculate BEP20 balance (deposits - withdrawals)
-	var bep20Deposits, bep20Withdrawals float64
-	db.Model(&models.Transaction{}).
-		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "BEP20", "deposit", "confirmed").
-		Select("COALESCE(SUM(amount), 0)").
-		Scan(&bep20Deposits)
-
-	db.Model(&models.Transaction{}).
-		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "BEP20", "withdraw", "confirmed").
-		Select("COALESCE(SUM(amount), 0)").
-		Scan(&bep20Withdrawals)
-
-	bep20Balance = bep20Deposits - bep20Withdrawals
-
-	// Calculate total balance
+	// استفاده از موجودی ذخیره شده در دیتابیس
+	erc20Balance := user.ERC20Balance
+	bep20Balance := user.BEP20Balance
 	totalBalance := erc20Balance + bep20Balance
 
 	// Count successful referrals
@@ -1018,39 +1073,13 @@ func showMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64)
 		return
 	}
 
-	// Calculate USDT balances for each network
-	var erc20Balance, bep20Balance float64
-
-	// Calculate ERC20 balance (deposits - withdrawals)
-	var erc20Deposits, erc20Withdrawals float64
-	db.Model(&models.Transaction{}).
-		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "ERC20", "deposit", "confirmed").
-		Select("COALESCE(SUM(amount), 0)").
-		Scan(&erc20Deposits)
-
-	db.Model(&models.Transaction{}).
-		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "ERC20", "withdraw", "confirmed").
-		Select("COALESCE(SUM(amount), 0)").
-		Scan(&erc20Withdrawals)
-
-	erc20Balance = erc20Deposits - erc20Withdrawals
-
-	// Calculate BEP20 balance (deposits - withdrawals)
-	var bep20Deposits, bep20Withdrawals float64
-	db.Model(&models.Transaction{}).
-		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "BEP20", "deposit", "confirmed").
-		Select("COALESCE(SUM(amount), 0)").
-		Scan(&bep20Deposits)
-
-	db.Model(&models.Transaction{}).
-		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "BEP20", "withdraw", "confirmed").
-		Select("COALESCE(SUM(amount), 0)").
-		Scan(&bep20Withdrawals)
-
-	bep20Balance = bep20Deposits - bep20Withdrawals
-
-	// Calculate total balance
-	totalBalance := erc20Balance + bep20Balance
+	// استفاده از موجودی ذخیره شده در دیتابیس
+	erc20Balance := user.ERC20Balance
+	bep20Balance := user.BEP20Balance
+	blockchainBalance := erc20Balance + bep20Balance
+	tradeBalance := user.TradeBalance
+	rewardBalance := user.RewardBalance
+	totalBalance := blockchainBalance + tradeBalance + rewardBalance
 
 	// Count successful referrals
 	var referralCount int64
@@ -1077,24 +1106,26 @@ func showMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64)
 	menu.OneTimeKeyboard = false
 
 	// Create main menu message with summary
-	mainMsg := fmt.Sprintf(`�� *منوی اصلی*
+	mainMsg := fmt.Sprintf(`💠 *منوی اصلی*
 
 👋 سلام %s!
 
 💰 *خلاصه موجودی:*
 • موجودی کل: %.2f USDT
-• موجودی پاداش: %.2f USDT
+• موجودی بلاکچین: %.2f USDT
+• سود/ضرر ترید: %.2f USDT
+• پاداش: %.2f USDT
 • تعداد زیرمجموعه: %d کاربر
 
 💡 دستورات ربات:
-	/trades [id] - مشاهده نتایج ترید برای یک واریز
-	
+/trades [id] - مشاهده نتایج ترید برای یک واریز
+
 💡 *گزینه‌های موجود:*
 💰 *کیف پول* - مدیریت موجودی و تراکنش‌ها
 🎁 *پاداش* - سیستم رفرال و پاداش‌ها
 📊 *آمار* - آمار شخصی و زیرمجموعه‌ها
 🆘 *پشتیبانی* - ارتباط با پشتیبانی`,
-		user.FullName, totalBalance, user.ReferralReward, referralCount)
+		user.FullName, totalBalance, blockchainBalance, tradeBalance, rewardBalance, referralCount)
 
 	msg := tgbotapi.NewMessage(chatID, mainMsg)
 	msg.ReplyMarkup = menu
@@ -1114,39 +1145,13 @@ func showWalletMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int6
 		return
 	}
 
-	// Calculate USDT balances for each network
-	var erc20Balance, bep20Balance float64
-
-	// Calculate ERC20 balance (deposits - withdrawals)
-	var erc20Deposits, erc20Withdrawals float64
-	db.Model(&models.Transaction{}).
-		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "ERC20", "deposit", "confirmed").
-		Select("COALESCE(SUM(amount), 0)").
-		Scan(&erc20Deposits)
-
-	db.Model(&models.Transaction{}).
-		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "ERC20", "withdraw", "confirmed").
-		Select("COALESCE(SUM(amount), 0)").
-		Scan(&erc20Withdrawals)
-
-	erc20Balance = erc20Deposits - erc20Withdrawals
-
-	// Calculate BEP20 balance (deposits - withdrawals)
-	var bep20Deposits, bep20Withdrawals float64
-	db.Model(&models.Transaction{}).
-		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "BEP20", "deposit", "confirmed").
-		Select("COALESCE(SUM(amount), 0)").
-		Scan(&bep20Deposits)
-
-	db.Model(&models.Transaction{}).
-		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "BEP20", "withdraw", "confirmed").
-		Select("COALESCE(SUM(amount), 0)").
-		Scan(&bep20Withdrawals)
-
-	bep20Balance = bep20Deposits - bep20Withdrawals
-
-	// Calculate total balance
-	totalBalance := erc20Balance + bep20Balance
+	// استفاده از موجودی ذخیره شده در دیتابیس
+	erc20Balance := user.ERC20Balance
+	bep20Balance := user.BEP20Balance
+	blockchainBalance := erc20Balance + bep20Balance
+	tradeBalance := user.TradeBalance
+	rewardBalance := user.RewardBalance
+	totalBalance := blockchainBalance + tradeBalance + rewardBalance
 
 	menu := tgbotapi.NewReplyKeyboard(
 		tgbotapi.NewKeyboardButtonRow(
@@ -1170,7 +1175,11 @@ func showWalletMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int6
 
 💎 *موجودی کل:* %.2f USDT
 
-📊 *جزئیات موجودی:*
+�� *جزئیات موجودی:*
+• موجودی بلاکچین: %.2f USDT
+• سود/ضرر ترید: %.2f USDT
+• پاداش: %.2f USDT
+
 • 🔵 *ERC20 (اتریوم):* %.2f USDT
 • 🟡 *BEP20 (بایننس):* %.2f USDT
 
@@ -1179,7 +1188,7 @@ func showWalletMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int6
 📋 *تاریخچه* - مشاهده تراکنش‌های قبلی
 💳 *واریز USDT* - واریز ارز دیجیتال
 ⬅️ *بازگشت* - بازگشت به منوی اصلی`,
-		totalBalance, erc20Balance, bep20Balance)
+		totalBalance, blockchainBalance, tradeBalance, rewardBalance, erc20Balance, bep20Balance)
 
 	msg := tgbotapi.NewMessage(chatID, balanceMsg)
 	msg.ReplyMarkup = menu
@@ -1483,36 +1492,9 @@ func handleWalletDeposit(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Messag
 		return
 	}
 
-	// Calculate current balances
-	var erc20Balance, bep20Balance float64
-
-	// Calculate ERC20 balance (deposits - withdrawals)
-	var erc20Deposits, erc20Withdrawals float64
-	db.Model(&models.Transaction{}).
-		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "ERC20", "deposit", "confirmed").
-		Select("COALESCE(SUM(amount), 0)").
-		Scan(&erc20Deposits)
-
-	db.Model(&models.Transaction{}).
-		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "ERC20", "withdraw", "confirmed").
-		Select("COALESCE(SUM(amount), 0)").
-		Scan(&erc20Withdrawals)
-
-	erc20Balance = erc20Deposits - erc20Withdrawals
-
-	// Calculate BEP20 balance (deposits - withdrawals)
-	var bep20Deposits, bep20Withdrawals float64
-	db.Model(&models.Transaction{}).
-		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "BEP20", "deposit", "confirmed").
-		Select("COALESCE(SUM(amount), 0)").
-		Scan(&bep20Deposits)
-
-	db.Model(&models.Transaction{}).
-		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "BEP20", "withdraw", "confirmed").
-		Select("COALESCE(SUM(amount), 0)").
-		Scan(&bep20Withdrawals)
-
-	bep20Balance = bep20Deposits - bep20Withdrawals
+	// استفاده از موجودی ذخیره شده در دیتابیس
+	erc20Balance := user.ERC20Balance
+	bep20Balance := user.BEP20Balance
 
 	// For old users: if missing wallet, generate and save
 	if user.ERC20Address == "" || user.BEP20Address == "" {
@@ -1707,38 +1689,9 @@ func showPersonalStats(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message)
 		return
 	}
 
-	// Calculate USDT balances for each network
-	var erc20Balance, bep20Balance float64
-
-	// Calculate ERC20 balance (deposits - withdrawals)
-	var erc20Deposits, erc20Withdrawals float64
-	db.Model(&models.Transaction{}).
-		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "ERC20", "deposit", "confirmed").
-		Select("COALESCE(SUM(amount), 0)").
-		Scan(&erc20Deposits)
-
-	db.Model(&models.Transaction{}).
-		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "ERC20", "withdraw", "confirmed").
-		Select("COALESCE(SUM(amount), 0)").
-		Scan(&erc20Withdrawals)
-
-	erc20Balance = erc20Deposits - erc20Withdrawals
-
-	// Calculate BEP20 balance (deposits - withdrawals)
-	var bep20Deposits, bep20Withdrawals float64
-	db.Model(&models.Transaction{}).
-		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "BEP20", "deposit", "confirmed").
-		Select("COALESCE(SUM(amount), 0)").
-		Scan(&bep20Deposits)
-
-	db.Model(&models.Transaction{}).
-		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "BEP20", "withdraw", "confirmed").
-		Select("COALESCE(SUM(amount), 0)").
-		Scan(&bep20Withdrawals)
-
-	bep20Balance = bep20Deposits - bep20Withdrawals
-
-	// Calculate total balance
+	// استفاده از موجودی ذخیره شده در دیتابیس
+	erc20Balance := user.ERC20Balance
+	bep20Balance := user.BEP20Balance
 	totalBalance := erc20Balance + bep20Balance
 
 	// Count successful referrals
