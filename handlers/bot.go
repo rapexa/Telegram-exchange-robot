@@ -53,8 +53,6 @@ func showAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) {
 <b>دستورات ادمین:</b>
 
 📊 <b>/settrade</b> [شماره معامله] [حداقل درصد] [حداکثر درصد]
-مثال: <code>/settrade 1 1 2</code>
-این دستور بازه درصد سود/ضرر معامله اول را بین ۱ تا ۲ درصد تنظیم می‌کند.
 
 یکی از گزینه‌های زیر را انتخاب کنید:`
 
@@ -175,6 +173,10 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB) {
 					minPercent, _ := strconv.ParseFloat(args[1], 64)
 					maxPercent, _ := strconv.ParseFloat(args[2], 64)
 					var tr models.TradeRange
+					if tradeIndex < 1 || tradeIndex > 3 {
+						bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "شماره معامله باید فقط ۱، ۲ یا ۳ باشد."))
+						continue
+					}
 					if err := db.Where("trade_index = ?", tradeIndex).First(&tr).Error; err == nil {
 						tr.MinPercent = minPercent
 						tr.MaxPercent = maxPercent
