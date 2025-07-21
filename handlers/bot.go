@@ -48,13 +48,16 @@ func showAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) {
 	menu.ResizeKeyboard = true
 	menu.OneTimeKeyboard = false
 
-	helpText := `🛠️ <b>پنل مدیریت</b>
+	helpText := `🛠️ <b>پنل مدیریت ربات</b>
 
-<b>دستورات ادمین:</b>
+به پنل مدیریت خوش آمدید!
 
-📊 <b>/settrade</b> [شماره معامله] [حداقل درصد] [حداکثر درصد]
+<b>دستورات سریع:</b>
 
-یکی از گزینه‌های زیر را انتخاب کنید:`
+• <b>/settrade [شماره معامله] [حداقل درصد] [حداکثر درصد]</b>
+  └ تنظیم بازه سود/ضرر برای هر ترید
+
+از منوی زیر برای مشاهده آمار، ارسال پیام همگانی یا مدیریت برداشت‌ها استفاده کنید.`
 
 	msg := tgbotapi.NewMessage(chatID, helpText)
 	msg.ReplyMarkup = menu
@@ -73,7 +76,12 @@ func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 		var totalDeposit, totalWithdraw float64
 		db.Model(&models.Transaction{}).Where("type = ? AND status = ?", "deposit", "confirmed").Select("COALESCE(SUM(amount),0)").Scan(&totalDeposit)
 		db.Model(&models.Transaction{}).Where("type = ? AND status = ?", "withdraw", "confirmed").Select("COALESCE(SUM(amount),0)").Scan(&totalWithdraw)
-		statsMsg := fmt.Sprintf("📊 آمار کلی ربات\n\n👥 کل کاربران: %d\n✅ ثبت‌نام کامل: %d\n💰 مجموع واریز: %.2f USDT\n💸 مجموع برداشت: %.2f USDT", userCount, regCount, totalDeposit, totalWithdraw)
+		statsMsg := fmt.Sprintf(`📊 <b>آمار کلی ربات</b>
+
+👥 <b>کل کاربران:</b> %d نفر
+✅ <b>ثبت‌نام کامل:</b> %d نفر
+💰 <b>مجموع واریز:</b> %.2f USDT
+💸 <b>مجموع برداشت:</b> %.2f USDT`, userCount, regCount, totalDeposit, totalWithdraw)
 		message := tgbotapi.NewMessage(msg.Chat.ID, statsMsg)
 		message.ParseMode = "HTML"
 		bot.Send(message)
@@ -133,7 +141,7 @@ func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 	}
 
 	// If none matched, show invalid command
-	message := tgbotapi.NewMessage(msg.Chat.ID, "دستور نامعتبر در پنل مدیریت.")
+	message := tgbotapi.NewMessage(msg.Chat.ID, "❗️ دستور وارد شده در پنل مدیریت نامعتبر است. لطفاً از منوی زیر استفاده کنید یا راهنمای دستورات را ببینید.")
 	bot.Send(message)
 	return
 }
@@ -822,7 +830,13 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 		}
 		db.Create(&tx)
 		// Notify admin
-		adminMsg := fmt.Sprintf("درخواست برداشت جدید:\n\nکاربر: %s (%d)\nمبلغ: %.2f USDT", user.FullName, user.TelegramID, amount)
+		adminMsg := fmt.Sprintf(`💸 <b>درخواست برداشت جدید</b>
+
+		👤 <b>کاربر:</b> %s (آیدی: <code>%d</code>)
+		💵 <b>مبلغ:</b> <b>%.2f USDT</b>
+		
+		برای تایید یا رد این برداشت، یکی از دکمه‌های زیر را انتخاب کنید.`, user.FullName, user.TelegramID, amount)
+
 		adminBtns := tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
 				tgbotapi.NewInlineKeyboardButtonData("پرداخت شد", fmt.Sprintf("approve_withdraw_%d", tx.ID)),
@@ -861,7 +875,12 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 			Status: "pending",
 		}
 		db.Create(&tx)
-		adminMsg := fmt.Sprintf("درخواست برداشت پاداش:\n\nکاربر: %s (%d)\nمبلغ: %.2f USDT", user.FullName, user.TelegramID, amount)
+		adminMsg := fmt.Sprintf(`🎁 <b>درخواست برداشت پاداش</b>
+
+		👤 <b>کاربر:</b> %s (آیدی: <code>%d</code>)
+		💰 <b>مبلغ:</b> <b>%.2f USDT</b>
+		
+		برای تایید یا رد این برداشت پاداش، یکی از دکمه‌های زیر را انتخاب کنید.`, user.FullName, user.TelegramID, amount)
 		adminBtns := tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
 				tgbotapi.NewInlineKeyboardButtonData("پرداخت شد", fmt.Sprintf("approve_withdraw_%d", tx.ID)),
@@ -1125,11 +1144,10 @@ func showMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64)
 💰 <b>موجودی فعلی شما:</b>
 • کل دارایی: <b>%.2f USDT</b>
 • بلاکچین: %.2f USDT
-• سود/ضرر ترید: %.2f USDT
 • پاداش: %.2f USDT
 • 👥 زیرمجموعه‌ها: %d نفر
 
-🔻 از منوی زیر یکی از گزینه‌ها رو انتخاب کن یا دستور مورد نظرت رو بنویس.`, user.FullName, totalBalance, blockchainBalance, tradeBalance, rewardBalance, referralCount)
+🔻 از منوی زیر یکی از گزینه‌ها رو انتخاب کن یا دستور مورد نظرت رو بنویس.`, user.FullName, totalBalance, blockchainBalance, rewardBalance, referralCount)
 
 	msg := tgbotapi.NewMessage(chatID, mainMsg)
 	msg.ReplyMarkup = menu
