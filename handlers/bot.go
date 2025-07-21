@@ -843,9 +843,13 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 			showMainMenu(bot, db, msg.Chat.ID, userID)
 			return true
 		}
+		// فقط اگر پیام عددی بود ادامه بده
 		amount, err := strconv.ParseFloat(msg.Text, 64)
 		if err != nil || amount <= 0 {
+			// اگر پیام غیرعددی بود، کاربر را به منوی اصلی برگردان و state را پاک کن
 			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ مبلغ نامعتبر است. لطفاً فقط عدد وارد کنید."))
+			clearRegState(userID)
+			showMainMenu(bot, db, msg.Chat.ID, userID)
 			return true
 		}
 		user, _ := getUserByTelegramID(db, userID)
