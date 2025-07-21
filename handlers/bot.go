@@ -293,42 +293,43 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB) {
 					// بعد از ذخیره نتیجه ترید (tradeResult) و قبل از ارسال پیام نتیجه به کاربر:
 					// --- Referral reward logic ---
 					tradeAmount := lastAmount
-					user, _ := getUserByTelegramID(db, tx.UserID)
-					if user != nil && user.ReferrerID != nil {
-						var referrer1 models.User
-						if err := db.First(&referrer1, *user.ReferrerID).Error; err == nil {
-							// پلن ویژه: اگر 20 زیرمجموعه مستقیم دارد
-							var count int64
-							db.Model(&models.User{}).Where("referrer_id = ? AND registered = ?", referrer1.ID, true).Count(&count)
-							percent := 0.5
-							if count >= 20 {
-								percent = 0.6
-								if !referrer1.PlanUpgradedNotified {
-									bot.Send(tgbotapi.NewMessage(referrer1.TelegramID, "🏆 تبریک! شما به خاطر داشتن ۲۰ زیرمجموعه فعال، درصد پاداش Level 1 شما به ۰.۶٪ افزایش یافت."))
-									referrer1.PlanUpgradedNotified = true
+					userPtr, _ := getUserByTelegramID(db, int64(tx.UserID))
+					if userPtr != nil {
+						user := userPtr
+						if user != nil && user.ReferrerID != nil {
+							var referrer1 models.User
+							if err := db.First(&referrer1, *user.ReferrerID).Error; err == nil {
+								// پلن ویژه: اگر 20 زیرمجموعه مستقیم دارد
+								var count int64
+								db.Model(&models.User{}).Where("referrer_id = ? AND registered = ?", referrer1.ID, true).Count(&count)
+								percent := 0.5
+								if count >= 20 {
+									percent = 0.6
+									if !referrer1.PlanUpgradedNotified {
+										bot.Send(tgbotapi.NewMessage(referrer1.TelegramID, "🏆 تبریک! شما به خاطر داشتن ۲۰ زیرمجموعه فعال، درصد پاداش Level 1 شما به ۰.۶٪ افزایش یافت."))
+										referrer1.PlanUpgradedNotified = true
+									}
 								}
+								reward1 := tradeAmount * percent / 100
+								referrer1.RewardBalance += reward1
+								db.Save(&referrer1)
+								bot.Send(tgbotapi.NewMessage(referrer1.TelegramID, fmt.Sprintf("🎉 شما به خاطر معامله زیرمجموعه‌تان %s مبلغ %.4f USDT پاداش گرفتید!", user.FullName, reward1)))
 							}
-							reward1 := tradeAmount * percent / 100
-							referrer1.RewardBalance += reward1
-							db.Save(&referrer1)
-							bot.Send(tgbotapi.NewMessage(referrer1.TelegramID, fmt.Sprintf("🎉 شما به خاطر معامله زیرمجموعه‌تان %s مبلغ %.4f USDT پاداش گرفتید!", user.FullName, reward1)))
-						}
-						// Level 2
-						if referrer1.ReferrerID != nil {
-							var referrer2 models.User
-							if err := db.First(&referrer2, *referrer1.ReferrerID).Error; err == nil {
-								reward2 := tradeAmount * 0.25 / 100
-								referrer2.RewardBalance += reward2
-								db.Save(&referrer2)
-								bot.Send(tgbotapi.NewMessage(referrer2.TelegramID, fmt.Sprintf("🎉 شما به خاطر معامله زیرمجموعه غیرمستقیم %s مبلغ %.4f USDT پاداش گرفتید!", user.FullName, reward2)))
+							// Level 2
+							if referrer1.ReferrerID != nil {
+								var referrer2 models.User
+								if err := db.First(&referrer2, *referrer1.ReferrerID).Error; err == nil {
+									reward2 := tradeAmount * 0.25 / 100
+									referrer2.RewardBalance += reward2
+									db.Save(&referrer2)
+									bot.Send(tgbotapi.NewMessage(referrer2.TelegramID, fmt.Sprintf("🎉 شما به خاطر معامله زیرمجموعه غیرمستقیم %s مبلغ %.4f USDT پاداش گرفتید!", user.FullName, reward2)))
+								}
 							}
 						}
 					}
-					// ... existing code ...
-
 					// پیام به کاربر: بعد از ۱ ثانیه نتیجه را ارسال کن
 					go func(chatID int64, amount float64, percent float64, resultAmount float64, tradeIndex int) {
-						time.Sleep(1 * time.Second) //TODO: change this to 30 minute later
+						time.Sleep(30 * time.Minute)
 						msg := fmt.Sprintf("نتیجه معامله %d شما: %+.2f%%\nمبلغ جدید: %.2f USDT", tradeIndex, percent, resultAmount)
 						bot.Send(tgbotapi.NewMessage(chatID, msg))
 					}(update.CallbackQuery.From.ID, lastAmount, percent, resultAmount, tradeIndex)
