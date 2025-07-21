@@ -1033,7 +1033,9 @@ func handleMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 	case "📊 آمار":
 		showStatsMenu(bot, db, msg.Chat.ID, userID)
 	case "🆘 پشتیبانی و آموزش":
-		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "💬 <b>پشتیبانی و آموزش</b>\n\nبرای ارتباط با پشتیبانی، سوالات یا مشکلات خود را به آیدی زیر ارسال کنید:\n👉 <a href='https://t.me/YourAdminUsername'>@YourAdminUsername</a>\n\n📢 همچنین برای آموزش‌ها و اطلاع‌رسانی‌های مهم، حتماً عضو کانال زیر باشید:\n👉 <a href='https://t.me/YourChannelUsername'>کانال آموزش و اطلاع‌رسانی</a>\n\nاز همراهی شما سپاسگزاریم!").SetParseMode("HTML"))
+		msg := tgbotapi.NewMessage(msg.Chat.ID, "💬 <b>پشتیبانی و آموزش</b>\n\nبرای ارتباط با پشتیبانی، سوالات یا مشکلات خود را به آیدی زیر ارسال کنید:\n👉 <a href='https://t.me/YourAdminUsername'>@YourAdminUsername</a>\n\n📢 همچنین برای آموزش‌ها و اطلاع‌رسانی‌های مهم، حتماً عضو کانال زیر باشید:\n👉 <a href='https://t.me/YourChannelUsername'>کانال آموزش و اطلاع‌رسانی</a>\n\nاز همراهی شما سپاسگزاریم!")
+		msg.ParseMode = "HTML"
+		bot.Send(msg)
 	case "🔗 لینک رفرال":
 		handleReferralLink(bot, db, msg)
 	case "ترید با 🤖":
