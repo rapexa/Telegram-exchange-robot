@@ -32,8 +32,9 @@ type User struct {
 	BEP20PrivKey  string  `gorm:"size:128"`
 	BEP20Balance  float64 `gorm:"default:0"` // موجودی BEP20
 
-	TradeBalance  float64 `gorm:"default:0"` // سود/ضرر تریدها (در ربات)
-	RewardBalance float64 `gorm:"default:0"` // پاداش‌ها (در ربات)
+	TradeBalance         float64 `gorm:"default:0"`     // سود/ضرر تریدها (در ربات)
+	RewardBalance        float64 `gorm:"default:0"`     // پاداش‌ها (در ربات)
+	PlanUpgradedNotified bool    `gorm:"default:false"` // آیا پیام ارتقا پلن ویژه ارسال شده؟
 }
 
 func logDebug(format string, v ...interface{}) {

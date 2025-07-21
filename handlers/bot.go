@@ -290,6 +290,42 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB) {
 					}
 					db.Create(&tradeResult)
 
+					// بعد از ذخیره نتیجه ترید (tradeResult) و قبل از ارسال پیام نتیجه به کاربر:
+					// --- Referral reward logic ---
+					tradeAmount := lastAmount
+					user, _ := getUserByTelegramID(db, tx.UserID)
+					if user != nil && user.ReferrerID != nil {
+						var referrer1 models.User
+						if err := db.First(&referrer1, *user.ReferrerID).Error; err == nil {
+							// پلن ویژه: اگر 20 زیرمجموعه مستقیم دارد
+							var count int64
+							db.Model(&models.User{}).Where("referrer_id = ? AND registered = ?", referrer1.ID, true).Count(&count)
+							percent := 0.5
+							if count >= 20 {
+								percent = 0.6
+								if !referrer1.PlanUpgradedNotified {
+									bot.Send(tgbotapi.NewMessage(referrer1.TelegramID, "🏆 تبریک! شما به خاطر داشتن ۲۰ زیرمجموعه فعال، درصد پاداش Level 1 شما به ۰.۶٪ افزایش یافت."))
+									referrer1.PlanUpgradedNotified = true
+								}
+							}
+							reward1 := tradeAmount * percent / 100
+							referrer1.RewardBalance += reward1
+							db.Save(&referrer1)
+							bot.Send(tgbotapi.NewMessage(referrer1.TelegramID, fmt.Sprintf("🎉 شما به خاطر معامله زیرمجموعه‌تان %s مبلغ %.4f USDT پاداش گرفتید!", user.FullName, reward1)))
+						}
+						// Level 2
+						if referrer1.ReferrerID != nil {
+							var referrer2 models.User
+							if err := db.First(&referrer2, *referrer1.ReferrerID).Error; err == nil {
+								reward2 := tradeAmount * 0.25 / 100
+								referrer2.RewardBalance += reward2
+								db.Save(&referrer2)
+								bot.Send(tgbotapi.NewMessage(referrer2.TelegramID, fmt.Sprintf("🎉 شما به خاطر معامله زیرمجموعه غیرمستقیم %s مبلغ %.4f USDT پاداش گرفتید!", user.FullName, reward2)))
+							}
+						}
+					}
+					// ... existing code ...
+
 					// پیام به کاربر: بعد از ۱ ثانیه نتیجه را ارسال کن
 					go func(chatID int64, amount float64, percent float64, resultAmount float64, tradeIndex int) {
 						time.Sleep(1 * time.Second) //TODO: change this to 30 minute later
@@ -996,8 +1032,8 @@ func handleMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 		showRewardsMenu(bot, db, msg.Chat.ID, userID)
 	case "📊 آمار":
 		showStatsMenu(bot, db, msg.Chat.ID, userID)
-	case "🆘 پشتیبانی":
-		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "برای پشتیبانی با ادمین تماس بگیرید: @YourAdminUsername"))
+	case "🆘 پشتیبانی و آموزش":
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "💬 <b>پشتیبانی و آموزش</b>\n\nبرای ارتباط با پشتیبانی، سوالات یا مشکلات خود را به آیدی زیر ارسال کنید:\n👉 <a href='https://t.me/YourAdminUsername'>@YourAdminUsername</a>\n\n📢 همچنین برای آموزش‌ها و اطلاع‌رسانی‌های مهم، حتماً عضو کانال زیر باشید:\n👉 <a href='https://t.me/YourChannelUsername'>کانال آموزش و اطلاع‌رسانی</a>\n\nاز همراهی شما سپاسگزاریم!").SetParseMode("HTML"))
 	case "🔗 لینک رفرال":
 		handleReferralLink(bot, db, msg)
 	case "ترید با 🤖":
@@ -1127,7 +1163,7 @@ func showMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64)
 			tgbotapi.NewKeyboardButton("📊 آمار"),
 		),
 		tgbotapi.NewKeyboardButtonRow(
-			tgbotapi.NewKeyboardButton("🆘 پشتیبانی"),
+			tgbotapi.NewKeyboardButton("🆘 پشتیبانی و آموزش"),
 		),
 		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("ترید با 🤖"),
