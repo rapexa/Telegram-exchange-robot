@@ -224,26 +224,15 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB) {
 					if err := db.First(&user, tx.UserID).Error; err == nil {
 						profit := resultAmount - lastAmount
 						user.TradeBalance += profit
-						db.Save(&user)
-					}
 
-					// به‌روزرسانی موجودی کاربر
-					var user models.User
-					if err := db.First(&user, tx.UserID).Error; err == nil {
-						// کم کردن مبلغ قبلی از موجودی
+						// کم کردن مبلغ قبلی از موجودی بلاکچین (در صورت نیاز)
 						if tx.Network == "ERC20" {
 							user.ERC20Balance -= lastAmount
-						} else if tx.Network == "BEP20" {
-							user.BEP20Balance -= lastAmount
-						}
-
-						// اضافه کردن مبلغ جدید به موجودی
-						if tx.Network == "ERC20" {
 							user.ERC20Balance += resultAmount
 						} else if tx.Network == "BEP20" {
+							user.BEP20Balance -= lastAmount
 							user.BEP20Balance += resultAmount
 						}
-
 						db.Save(&user)
 					}
 
