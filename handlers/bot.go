@@ -1681,7 +1681,7 @@ func showTransactionHistory(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Mes
 	history += "\n\n💡 *نکته:* فقط تراکنش‌های تایید شده در موجودی محاسبه می‌شوند."
 
 	message := tgbotapi.NewMessage(msg.Chat.ID, history)
-	message.ParseMode = "Markdown"
+	message.ParseMode = "HTML"
 	bot.Send(message)
 }
 
