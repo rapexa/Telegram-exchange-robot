@@ -626,21 +626,21 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 	if state == "full_name" {
 		// Validate Persian full name format
 		if !models.ValidatePersianFullName(msg.Text) {
-			errorMsg := `❌ *خطا در فرمت نام*
+			errorMsg := `❌ <b>خطا در فرمت نام</b>
 
-فرمت نام صحیح نیست. لطفاً نام و نام خانوادگی را به فارسی وارد کنید:
+فرمت نام صحیح نیست. لطفاً نام و نام خانوادگی را به فارسی وارد کنید.
 
-📝 *مثال صحیح:* علی احمدی
+📝 <b>مثال صحیح:</b> علی احمدی
 
-💡 *نکات مهم:*
+💡 <b>نکات مهم:</b>
 • نام و نام خانوادگی باید به فارسی باشد
 • حداقل دو کلمه (نام و نام خانوادگی) الزامی است
 • هر کلمه حداقل ۲ حرف باشد
 
-🔄 لطفاً دوباره تلاش کنید:`
+🔄 لطفاً دوباره تلاش کنید.`
 
 			message := tgbotapi.NewMessage(msg.Chat.ID, errorMsg)
-			message.ParseMode = "Markdown"
+			message.ParseMode = "HTML"
 			bot.Send(message)
 			return true
 		}
@@ -673,21 +673,21 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 		if !models.ValidateSheba(msg.Text) {
 			logError("Sheba validation failed for: '%s'", msg.Text)
 
-			errorMsg := `❌ *خطا در فرمت شماره شبا*
+			errorMsg := `❌ <b>خطا در فرمت شماره شبا</b>
 
-فرمت شماره شبا صحیح نیست. لطفاً شماره شبا را به فرمت صحیح وارد کنید:
+فرمت شماره شبا صحیح نیست. لطفاً شماره شبا را به فرمت صحیح وارد کنید.
 
-🏦 *مثال صحیح:* IR520630144905901219088011
+🏦 <b>مثال صحیح:</b> IR520630144905901219088011
 
-💡 *نکات مهم:*
+💡 <b>نکات مهم:</b>
 • شماره شبا باید با IR شروع شود
 • شامل ۲۴ رقم بعد از IR باشد
 • بدون فاصله یا کاراکتر اضافی
 
-🔄 لطفاً دوباره تلاش کنید:`
+🔄 لطفاً دوباره تلاش کنید.`
 
 			message := tgbotapi.NewMessage(msg.Chat.ID, errorMsg)
-			message.ParseMode = "Markdown"
+			message.ParseMode = "HTML"
 			bot.Send(message)
 			return true
 		}
@@ -717,21 +717,21 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 	} else if state == "card_number" {
 		// Validate card number format
 		if !models.ValidateCardNumber(msg.Text) {
-			errorMsg := `❌ *خطا در فرمت شماره کارت*
+			errorMsg := `❌ <b>خطا در فرمت شماره کارت</b>
 
-فرمت شماره کارت صحیح نیست. لطفاً شماره کارت را به فرمت صحیح وارد کنید:
+فرمت شماره کارت صحیح نیست. لطفاً شماره کارت را به فرمت صحیح وارد کنید.
 
-💳 *مثال صحیح:* 6037998215325563
+💳 <b>مثال صحیح:</b> 6037998215325563
 
-💡 *نکات مهم:*
+💡 <b>نکات مهم:</b>
 • شماره کارت باید ۱۶ رقم باشد
 • بدون فاصله یا کاراکتر اضافی
 • فقط اعداد مجاز هستند
 
-🔄 لطفاً دوباره تلاش کنید:`
+🔄 لطفاً دوباره تلاش کنید.`
 
 			message := tgbotapi.NewMessage(msg.Chat.ID, errorMsg)
-			message.ParseMode = "Markdown"
+			message.ParseMode = "HTML"
 			bot.Send(message)
 			return true
 		}
@@ -747,11 +747,9 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 		err := registerUser(db, userID, info["full_name"], info["sheba"], info["card_number"])
 		if err != nil {
 			logError("Error registering user: %v", err)
-			errorMsg := `❌ *خطا در ثبت اطلاعات*
+			errorMsg := `❌ <b>خطا در ثبت اطلاعات</b>
 
-متأسفانه خطایی در ثبت اطلاعات رخ داد. لطفاً دوباره تلاش کنید.
-
-🔄 برای شروع مجدد، دستور /start را بزنید.`
+متاسفانه مشکلی پیش اومد. لطفاً دوباره تلاش کن یا با پشتیبانی تماس بگیر.`
 
 			message := tgbotapi.NewMessage(msg.Chat.ID, errorMsg)
 			message.ParseMode = "Markdown"
@@ -779,20 +777,15 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 		logInfo("Registration completed successfully for user %d", userID)
 		clearRegState(userID)
 
-		successMsg := `🎉 *ثبت‌نام با موفقیت تکمیل شد!*
+		successMsg := fmt.Sprintf(`🎉 <b>ثبت‌نام با موفقیت انجام شد!</b>
 
-✅ تمام مراحل ثبت‌نام با موفقیت انجام شد.
+👤 نام: %s
+🏦 شبا: %s
+💳 کارت: %s
 
-👤 *اطلاعات ثبت شده:*
-• نام و نام خانوادگی: *%s*
-• شماره شبا: *%s*
-• شماره کارت: *%s*
+🚀 حالا می‌تونی از همه امکانات ربات استفاده کنی!`, info["full_name"], info["sheba"], info["card_number"])
 
-🚀 حالا می‌توانید از تمام خدمات ربات استفاده کنید!
-
-👇 منوی اصلی را انتخاب کنید:`
-
-		message := tgbotapi.NewMessage(msg.Chat.ID, fmt.Sprintf(successMsg, info["full_name"], info["sheba"], info["card_number"]))
+		message := tgbotapi.NewMessage(msg.Chat.ID, successMsg)
 		message.ParseMode = "Markdown"
 		bot.Send(message)
 
@@ -1125,29 +1118,22 @@ func showMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64)
 	menu.OneTimeKeyboard = false
 
 	// Create main menu message with summary
-	mainMsg := fmt.Sprintf(`💠 *منوی اصلی*
+	mainMsg := fmt.Sprintf(`💠 <b>خوش اومدی %s!</b>
 
-👋 سلام %s!
+👋 به ربات صرافی ما خوش اومدی. اینجا می‌تونی به راحتی واریز، برداشت و ترید انجام بدی.
 
-💰 *خلاصه موجودی:*
-• موجودی کل: %.2f USDT
-• موجودی بلاکچین: %.2f USDT
+💰 <b>موجودی فعلی شما:</b>
+• کل دارایی: <b>%.2f USDT</b>
+• بلاکچین: %.2f USDT
+• سود/ضرر ترید: %.2f USDT
 • پاداش: %.2f USDT
-• تعداد زیرمجموعه: %d کاربر
+• 👥 زیرمجموعه‌ها: %d نفر
 
-💡 دستورات ربات:
-/trades [id] - مشاهده نتایج ترید برای یک واریز
-
-💡 *گزینه‌های موجود:*
-💰 *کیف پول* - مدیریت موجودی و تراکنش‌ها
-🎁 *پاداش* - سیستم رفرال و پاداش‌ها
-📊 *آمار* - آمار شخصی و زیرمجموعه‌ها
-🆘 *پشتیبانی* - ارتباط با پشتیبانی`,
-		user.FullName, totalBalance, blockchainBalance, rewardBalance, referralCount)
+🔻 از منوی زیر یکی از گزینه‌ها رو انتخاب کن یا دستور مورد نظرت رو بنویس.`, user.FullName, totalBalance, blockchainBalance, tradeBalance, rewardBalance, referralCount)
 
 	msg := tgbotapi.NewMessage(chatID, mainMsg)
 	msg.ReplyMarkup = menu
-	msg.ParseMode = "Markdown"
+	msg.ParseMode = "HTML"
 	bot.Send(msg)
 }
 
@@ -1189,27 +1175,21 @@ func showWalletMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int6
 	menu.OneTimeKeyboard = false
 
 	// Create balance display message
-	balanceMsg := fmt.Sprintf(`💰 *منوی کیف پول*
+	balanceMsg := fmt.Sprintf(`💰 <b>کیف پول شما</b>
 
-💎 *موجودی کل:* %.2f USDT
+💎 <b>موجودی کل:</b> <b>%.2f USDT</b>
 
-�� *جزئیات موجودی:*
-• موجودی بلاکچین: %.2f USDT
+📊 <b>جزئیات:</b>
+• بلاکچین: %.2f USDT
 • پاداش: %.2f USDT
+• 🔵 ERC20 (اتریوم): %.2f USDT
+• 🟡 BEP20 (بایننس): %.2f USDT
 
-• 🔵 *ERC20 (اتریوم):* %.2f USDT
-• 🟡 *BEP20 (بایننس):* %.2f USDT
-
-💡 *گزینه‌های موجود:*
-💵 *برداشت* - درخواست برداشت ریالی
-📋 *تاریخچه* - مشاهده تراکنش‌های قبلی
-💳 *واریز USDT* - واریز ارز دیجیتال
-⬅️ *بازگشت* - بازگشت به منوی اصلی`,
-		totalBalance, blockchainBalance, rewardBalance, erc20Balance, bep20Balance)
+💡 از منوی زیر برای برداشت، واریز یا مشاهده تاریخچه استفاده کن.`, totalBalance, blockchainBalance, rewardBalance, erc20Balance, bep20Balance)
 
 	msg := tgbotapi.NewMessage(chatID, balanceMsg)
 	msg.ReplyMarkup = menu
-	msg.ParseMode = "Markdown"
+	msg.ParseMode = "HTML"
 	bot.Send(msg)
 }
 
@@ -1658,14 +1638,14 @@ func showTransactionHistory(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Mes
 		}
 	}
 
-	history := fmt.Sprintf(`📋 *تاریخچه تراکنش‌ها*
+	history := fmt.Sprintf(`📋 <b>تاریخچه تراکنش‌ها</b>
 
-📊 *خلاصه (آخرین ۱۰ تراکنش):*
-• کل واریز: %.2f USDT (%d تراکنش)
-• کل برداشت: %.2f USDT (%d تراکنش)
-• کل برداشت پاداش: %.2f USDT (%d تراکنش)
+📊 <b>خلاصه (آخرین ۱۰ تراکنش):</b>
+• کل واریز: <b>%.2f USDT</b> (%d تراکنش)
+• کل برداشت: <b>%.2f USDT</b> (%d تراکنش)
+• کل برداشت پاداش: <b>%.2f USDT</b> (%d تراکنش)
 
-📋 *جزئیات تراکنش‌ها:*`, totalDeposits, depositCount, totalWithdrawals, withdrawCount, totalRewardWithdrawals, rewardWithdrawCount)
+📋 <b>جزئیات تراکنش‌ها:</b>`, totalDeposits, depositCount, totalWithdrawals, withdrawCount, totalRewardWithdrawals, rewardWithdrawCount)
 
 	for i, tx := range txs {
 		typeFa := "💳 واریز"
