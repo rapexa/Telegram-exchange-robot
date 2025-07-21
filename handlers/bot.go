@@ -1692,7 +1692,9 @@ func showPersonalStats(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message)
 	// استفاده از موجودی ذخیره شده در دیتابیس
 	erc20Balance := user.ERC20Balance
 	bep20Balance := user.BEP20Balance
-	totalBalance := erc20Balance + bep20Balance
+	tradeBalance := user.TradeBalance
+	rewardBalance := user.RewardBalance
+	totalBalance := erc20Balance + bep20Balance + tradeBalance + rewardBalance
 
 	// Count successful referrals
 	var referralCount int64
@@ -1705,12 +1707,7 @@ func showPersonalStats(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message)
 	db.Model(&models.Transaction{}).Where("user_id = ? AND network = ? AND type = ?", user.ID, "BEP20", "deposit").Count(&bep20DepositCount)
 	db.Model(&models.Transaction{}).Where("user_id = ? AND network = ? AND type = ?", user.ID, "BEP20", "withdraw").Count(&bep20WithdrawCount)
 
-	// Calculate total transactions
 	totalTransactions := erc20DepositCount + erc20WithdrawCount + bep20DepositCount + bep20WithdrawCount
-
-	// Calculate total deposits and withdrawals
-	totalDeposits := erc20Deposits + bep20Deposits
-	totalWithdrawals := erc20Withdrawals + bep20Withdrawals
 
 	statsMsg := fmt.Sprintf(`📈 *آمار شخصی*
 
@@ -1723,27 +1720,22 @@ func showPersonalStats(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message)
 • موجودی کل: %.2f USDT
 • 🔵 ERC20 (اتریوم): %.2f USDT
 • 🟡 BEP20 (بایننس): %.2f USDT
+• سود/ضرر ترید: %.2f USDT
+• پاداش: %.2f USDT
 
 🎁 *آمار رفرال:*
-• موجودی پاداش: %.2f USDT
 • تعداد زیرمجموعه: %d کاربر
 
 📊 *آمار تراکنش‌ها:*
 • کل تراکنش‌ها: %d مورد
-• کل واریز: %.2f USDT
-• کل برداشت: %.2f USDT
-
-📋 *جزئیات تراکنش‌ها:*
-• 🔵 ERC20 واریز: %d مورد (%.2f USDT)
-• 🔵 ERC20 برداشت: %d مورد (%.2f USDT)
-• 🟡 BEP20 واریز: %d مورد (%.2f USDT)
-• 🟡 BEP20 برداشت: %d مورد (%.2f USDT)`,
+• 🔵 ERC20 واریز: %d مورد
+• 🔵 ERC20 برداشت: %d مورد
+• 🟡 BEP20 واریز: %d مورد
+• 🟡 BEP20 برداشت: %d مورد`,
 		user.FullName, user.Username, user.CreatedAt.Format("02/01/2006"),
-		totalBalance, erc20Balance, bep20Balance,
-		user.ReferralReward, referralCount,
-		totalTransactions, totalDeposits, totalWithdrawals,
-		erc20DepositCount, erc20Deposits, erc20WithdrawCount, erc20Withdrawals,
-		bep20DepositCount, bep20Deposits, bep20WithdrawCount, bep20Withdrawals)
+		totalBalance, erc20Balance, bep20Balance, tradeBalance, rewardBalance,
+		referralCount, totalTransactions,
+		erc20DepositCount, erc20WithdrawCount, bep20DepositCount, bep20WithdrawCount)
 
 	message := tgbotapi.NewMessage(msg.Chat.ID, statsMsg)
 	message.ParseMode = "Markdown"
