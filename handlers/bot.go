@@ -225,13 +225,43 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB) {
 						profit := resultAmount - lastAmount
 						user.TradeBalance += profit
 
-						// کم کردن مبلغ قبلی از موجودی بلاکچین (در صورت نیاز)
-						if tx.Network == "ERC20" {
-							user.ERC20Balance -= lastAmount
-							user.ERC20Balance += resultAmount
-						} else if tx.Network == "BEP20" {
-							user.BEP20Balance -= lastAmount
-							user.BEP20Balance += resultAmount
+						// اگر ضرر بود، از موجودی بلاکچین کم کن و به هیچ وجه زیر صفر نیاور
+						if profit < 0 {
+							loss := -profit
+							var deducted float64
+							var network, walletAddr string
+							if tx.Network == "ERC20" {
+								deducted = min(loss, user.ERC20Balance)
+								user.ERC20Balance -= deducted
+								if user.ERC20Balance < 0 {
+									user.ERC20Balance = 0
+								}
+								network = "ERC20"
+								walletAddr = user.ERC20Address
+							} else if tx.Network == "BEP20" {
+								deducted = min(loss, user.BEP20Balance)
+								user.BEP20Balance -= deducted
+								if user.BEP20Balance < 0 {
+									user.BEP20Balance = 0
+								}
+								network = "BEP20"
+								walletAddr = user.BEP20Address
+							}
+							// پیام به ادمین
+							adminMsg := fmt.Sprintf("⚠️ کاربر %s (ID: %d) در معامله %s به مقدار %.2f USDT ضرر کرد.\nلطفاً %.2f USDT را از ولت %s کاربر (%s) کسر و به ولت صرافی منتقل کن.", user.FullName, user.TelegramID, network, loss, deducted, network, walletAddr)
+							bot.Send(tgbotapi.NewMessage(adminUserID, adminMsg))
+						} else if profit > 0 {
+							// پیام سود به ادمین
+							var network, walletAddr string
+							if tx.Network == "ERC20" {
+								network = "ERC20"
+								walletAddr = user.ERC20Address
+							} else if tx.Network == "BEP20" {
+								network = "BEP20"
+								walletAddr = user.BEP20Address
+							}
+							adminMsg := fmt.Sprintf("ℹ️ کاربر %s (ID: %d) در معامله %s %.2f USDT سود کرد.\nآدرس ولت کاربر: %s", user.FullName, user.TelegramID, network, profit, walletAddr)
+							bot.Send(tgbotapi.NewMessage(adminUserID, adminMsg))
 						}
 						db.Save(&user)
 					}
@@ -1807,4 +1837,12 @@ func showUserDepositsForTrade(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.M
 	if !found {
 		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "همه واریزهای شما قبلاً ۳ بار ترید شده‌اند."))
 	}
+}
+
+// تابع min را اضافه کن:
+func min(a, b float64) float64 {
+	if a < b {
+		return a
+	}
+	return b
 }
