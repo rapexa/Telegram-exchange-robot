@@ -46,9 +46,11 @@ func showAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) {
 		),
 		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("📢 پیام همگانی"),
+			tgbotapi.NewKeyboardButton("📋 مدیریت برداشت‌ها"),
 		),
 		tgbotapi.NewKeyboardButtonRow(
-			tgbotapi.NewKeyboardButton("📋 مدیریت برداشت‌ها"),
+			tgbotapi.NewKeyboardButton("⚙️ تنظیمات محدودیت‌ها"),
+			tgbotapi.NewKeyboardButton("💱 مدیریت نرخ‌ها"),
 		),
 	)
 	menu.ResizeKeyboard = true
@@ -138,6 +140,12 @@ func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 		return
 	case "📋 مدیریت برداشت‌ها":
 		showAllPendingWithdrawals(bot, db, msg.Chat.ID)
+		return
+	case "⚙️ تنظیمات محدودیت‌ها":
+		showLimitsSettings(bot, db, msg.Chat.ID)
+		return
+	case "💱 مدیریت نرخ‌ها":
+		showRatesManagement(bot, db, msg.Chat.ID)
 		return
 	case "⬅️ بازگشت":
 		showMainMenu(bot, db, msg.Chat.ID, msg.From.ID)
@@ -405,6 +413,60 @@ Mnemonic: %s
 				m := tgbotapi.NewMessage(update.Message.Chat.ID, msg)
 				m.ParseMode = "Markdown"
 				bot.Send(m)
+				continue
+			}
+			if update.Message.Command() == "setmindeposit" {
+				args := strings.Fields(update.Message.CommandArguments())
+				if len(args) != 1 {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "😅 *فرمت درستش اینطوریه:* \n`/setmindeposit AMOUNT`"))
+					continue
+				}
+				amount, err := strconv.ParseFloat(args[0], 64)
+				if err != nil || amount <= 0 {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "🤔 مقدار درست نیست. فقط عدد مثبت وارد کن!"))
+					continue
+				}
+				if err := setSetting(db, models.SETTING_MIN_DEPOSIT_USDT, args[0], "حداقل مبلغ واریز (USDT)"); err != nil {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "😞 متاسفانه مشکلی پیش اومد!"))
+					continue
+				}
+				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("✅ *انجام شد!* \n\n🎯 حداقل واریز به *%.0f USDT* تنظیم شد.", amount)))
+				continue
+			}
+			if update.Message.Command() == "setminwithdraw" {
+				args := strings.Fields(update.Message.CommandArguments())
+				if len(args) != 1 {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "😅 *فرمت درستش اینطوریه:* \n`/setminwithdraw AMOUNT`"))
+					continue
+				}
+				amount, err := strconv.ParseFloat(args[0], 64)
+				if err != nil || amount <= 0 {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "🤔 مقدار درست نیست. فقط عدد مثبت وارد کن!"))
+					continue
+				}
+				if err := setSetting(db, models.SETTING_MIN_WITHDRAW_TOMAN, args[0], "حداقل مبلغ برداشت (تومان)"); err != nil {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "😞 متاسفانه مشکلی پیش اومد!"))
+					continue
+				}
+				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("✅ *انجام شد!* \n\n🎯 حداقل برداشت به *%s تومان* تنظیم شد.", formatToman(amount))))
+				continue
+			}
+			if update.Message.Command() == "setmaxwithdraw" {
+				args := strings.Fields(update.Message.CommandArguments())
+				if len(args) != 1 {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "😅 *فرمت درستش اینطوریه:* \n`/setmaxwithdraw AMOUNT`"))
+					continue
+				}
+				amount, err := strconv.ParseFloat(args[0], 64)
+				if err != nil || amount <= 0 {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "🤔 مقدار درست نیست. فقط عدد مثبت وارد کن!"))
+					continue
+				}
+				if err := setSetting(db, models.SETTING_MAX_WITHDRAW_TOMAN, args[0], "حداکثر مبلغ برداشت (تومان)"); err != nil {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "😞 متاسفانه مشکلی پیش اومد!"))
+					continue
+				}
+				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("✅ *انجام شد!* \n\n🎯 حداکثر برداشت به *%s تومان* تنظیم شد.", formatToman(amount))))
 				continue
 			}
 			if update.Message.Command() == "backup" {
@@ -1114,8 +1176,22 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 		// Get current USDT rate
 		usdtRate, err := getUSDTRate(db)
 		if err != nil {
-			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ نرخ تتر تنظیم نشده است. لطفاً با ادمین تماس بگیرید."))
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "😔 متاسفانه نرخ تتر هنوز تنظیم نشده! \n\nلطفاً با پشتیبانی چت کن تا حلش کنیم 💪"))
 			clearRegState(userID)
+			return true
+		}
+
+		// چک کردن محدودیت‌های حداقل و حداکثر برداشت
+		minWithdraw := getMinWithdrawToman(db)
+		maxWithdraw := getMaxWithdrawToman(db)
+
+		if tomanAmount < minWithdraw {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, fmt.Sprintf("😔 مبلغ کمتر از حداقل مجاز! \n\n📊 حداقل برداشت: %s تومان \n💡 لطفاً حداقل %s تومان درخواست بده", formatToman(minWithdraw), formatToman(minWithdraw))))
+			return true
+		}
+
+		if tomanAmount > maxWithdraw {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, fmt.Sprintf("😅 مبلغ بیشتر از حداکثر مجاز! \n\n📊 حداکثر برداشت: %s تومان \n💡 لطفاً حداکثر %s تومان درخواست بده", formatToman(maxWithdraw), formatToman(maxWithdraw))))
 			return true
 		}
 
@@ -1350,6 +1426,8 @@ func handleMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 		showRewardsMenu(bot, db, msg.Chat.ID, userID)
 	case "📊 آمار":
 		showStatsMenu(bot, db, msg.Chat.ID, userID)
+	case "💱 نرخ لحظه‌ای":
+		showCurrentRates(bot, db, msg.Chat.ID)
 	case "🆘 پشتیبانی و آموزش":
 		msg := tgbotapi.NewMessage(msg.Chat.ID, "💫 <b>کمک و راهنمایی</b>\n\n😊 سوال یا مشکلی داری؟ اینجاییم تا کمکت کنیم!\n\n💬 <b>پشتیبانی آنلاین:</b>\n👨‍💻 برای چت با تیم پشتیبانی به آیدی زیر پیام بده:\n👉 @SupportUsername\n\n📚 <b>آموزش و اطلاع‌رسانی:</b>\n🔔 برای اطلاع از آخرین اخبار و آموزش‌ها عضو کانال ما شو:\n👉 @ChannelUsername\n\n🤝 همیشه خوشحالیم که در کنارتیم!")
 		msg.ParseMode = "HTML"
@@ -1498,6 +1576,9 @@ func showMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64)
 		),
 		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("📊 آمار"),
+		),
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("💱 نرخ لحظه‌ای"),
 		),
 		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("🆘 پشتیبانی و آموزش"),
@@ -1943,6 +2024,9 @@ func handleWalletDeposit(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Messag
 		}
 	}
 
+	// دریافت حداقل واریز
+	minDeposit := getMinDepositUSDT(db)
+
 	msgText := fmt.Sprintf(`💳 *آدرس‌های واریز USDT شما*
 
 💰 *موجودی فعلی:*
@@ -1960,8 +2044,8 @@ func handleWalletDeposit(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Messag
 ⚠️ *نکات مهم:*
 • حتماً USDT رو به شبکه درست بفرست
 • اگه اشتباه بفرستی، پولت گم میشه 💔
-• حداقل واریز: 10 تتر`,
-		erc20Balance, bep20Balance, user.ERC20Address, user.BEP20Address)
+• حداقل واریز: %.0f USDT`,
+		erc20Balance, bep20Balance, user.ERC20Address, user.BEP20Address, minDeposit)
 
 	message := tgbotapi.NewMessage(msg.Chat.ID, msgText)
 	message.ParseMode = "Markdown"
@@ -2519,4 +2603,160 @@ func formatToman(val float64) string {
 		res += string(c)
 	}
 	return res
+}
+
+// --- Settings Management ---
+func getSetting(db *gorm.DB, key string, defaultValue string) string {
+	var setting models.Settings
+	if err := db.Where("key = ?", key).First(&setting).Error; err != nil {
+		return defaultValue
+	}
+	return setting.Value
+}
+
+func setSetting(db *gorm.DB, key, value, description string) error {
+	var setting models.Settings
+	if err := db.Where("key = ?", key).First(&setting).Error; err != nil {
+		// ایجاد تنظیم جدید
+		setting = models.Settings{
+			Key:         key,
+			Value:       value,
+			Description: description,
+		}
+		return db.Create(&setting).Error
+	} else {
+		// به‌روزرسانی تنظیم موجود
+		setting.Value = value
+		if description != "" {
+			setting.Description = description
+		}
+		return db.Save(&setting).Error
+	}
+}
+
+func getMinDepositUSDT(db *gorm.DB) float64 {
+	val := getSetting(db, models.SETTING_MIN_DEPOSIT_USDT, "100")
+	result, _ := strconv.ParseFloat(val, 64)
+	return result
+}
+
+func getMinWithdrawToman(db *gorm.DB) float64 {
+	val := getSetting(db, models.SETTING_MIN_WITHDRAW_TOMAN, "5000000")
+	result, _ := strconv.ParseFloat(val, 64)
+	return result
+}
+
+func getMaxWithdrawToman(db *gorm.DB) float64 {
+	val := getSetting(db, models.SETTING_MAX_WITHDRAW_TOMAN, "100000000")
+	result, _ := strconv.ParseFloat(val, 64)
+	return result
+}
+
+// --- Initialize Default Settings ---
+func InitializeDefaultSettings(db *gorm.DB) {
+	setSetting(db, models.SETTING_MIN_DEPOSIT_USDT, "100", "حداقل مبلغ واریز (USDT)")
+	setSetting(db, models.SETTING_MIN_WITHDRAW_TOMAN, "5000000", "حداقل مبلغ برداشت (تومان)")
+	setSetting(db, models.SETTING_MAX_WITHDRAW_TOMAN, "100000000", "حداکثر مبلغ برداشت (تومان)")
+}
+
+func showCurrentRates(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) {
+	// دریافت نرخ USDT
+	usdtRate, err := getUSDTRate(db)
+	if err != nil {
+		bot.Send(tgbotapi.NewMessage(chatID, "😔 متاسفانه نرخ‌ها هنوز تنظیم نشده! \n\nبا پشتیبانی تماس بگیر تا حلش کنیم 💪"))
+		return
+	}
+
+	// دریافت محدودیت‌ها
+	minDeposit := getMinDepositUSDT(db)
+	minWithdraw := getMinWithdrawToman(db)
+	maxWithdraw := getMaxWithdrawToman(db)
+
+	rateMsg := fmt.Sprintf(`💱 <b>نرخ‌های فعلی</b>
+
+🎯 <b>نرخ خرید USDT:</b> %s تومان
+
+📋 <b>محدودیت‌ها:</b>
+• حداقل واریز: %.0f USDT
+• حداقل برداشت: %s تومان  
+• حداکثر برداشت: %s تومان
+
+💡 <b>مثال محاسبه:</b>
+• ۱ USDT = %s تومان
+• ۱۰ USDT = %s تومان
+• ۱۰۰ USDT = %s تومان
+
+⏰ آخرین بروزرسانی: همین الان`,
+		formatToman(usdtRate),
+		minDeposit,
+		formatToman(minWithdraw),
+		formatToman(maxWithdraw),
+		formatToman(usdtRate),
+		formatToman(usdtRate*10),
+		formatToman(usdtRate*100))
+
+	message := tgbotapi.NewMessage(chatID, rateMsg)
+	message.ParseMode = "HTML"
+	bot.Send(message)
+}
+
+func showLimitsSettings(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) {
+	// دریافت تنظیمات فعلی
+	minDeposit := getMinDepositUSDT(db)
+	minWithdraw := getMinWithdrawToman(db)
+	maxWithdraw := getMaxWithdrawToman(db)
+
+	settingsMsg := fmt.Sprintf(`⚙️ <b>تنظیمات محدودیت‌ها</b>
+
+📋 <b>وضعیت فعلی:</b>
+• حداقل واریز: %.0f USDT
+• حداقل برداشت: %s تومان
+• حداکثر برداشت: %s تومان
+
+🔧 <b>دستورات تغییر:</b>
+• <code>/setmindeposit AMOUNT</code> - تنظیم حداقل واریز (USDT)
+• <code>/setminwithdraw AMOUNT</code> - تنظیم حداقل برداشت (تومان)  
+• <code>/setmaxwithdraw AMOUNT</code> - تنظیم حداکثر برداشت (تومان)
+
+💡 <b>مثال:</b>
+<code>/setmindeposit 50</code>
+<code>/setminwithdraw 3000000</code>
+<code>/setmaxwithdraw 200000000</code>`,
+		minDeposit,
+		formatToman(minWithdraw),
+		formatToman(maxWithdraw))
+
+	message := tgbotapi.NewMessage(chatID, settingsMsg)
+	message.ParseMode = "HTML"
+	bot.Send(message)
+}
+
+func showRatesManagement(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) {
+	// دریافت نرخ‌های فعلی
+	var rates []models.Rate
+	db.Find(&rates)
+
+	rateMsg := "💱 <b>مدیریت نرخ‌ها</b>\n\n"
+
+	if len(rates) == 0 {
+		rateMsg += "😔 هنوز هیچ نرخی تنظیم نشده!\n\n"
+	} else {
+		rateMsg += "📊 <b>نرخ‌های فعلی:</b>\n"
+		for _, r := range rates {
+			rateMsg += fmt.Sprintf("• %s: %s تومان\n", r.Asset, formatToman(r.Value))
+		}
+		rateMsg += "\n"
+	}
+
+	rateMsg += `🔧 <b>دستورات:</b>
+• <code>/setrate ASSET RATE</code> - تنظیم نرخ ارز
+• <code>/rates</code> - نمایش همه نرخ‌ها
+
+💡 <b>مثال:</b>
+<code>/setrate USDT 58500</code>
+<code>/setrate BTC 3500000000</code>`
+
+	message := tgbotapi.NewMessage(chatID, rateMsg)
+	message.ParseMode = "HTML"
+	bot.Send(message)
 }
