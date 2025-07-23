@@ -361,7 +361,7 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB) {
 					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "کاربر یافت نشد."))
 					continue
 				}
-				msg := fmt.Sprintf("👤 *اطلاعات کامل کاربر*
+				msg := fmt.Sprintf(`👤 *اطلاعات کامل کاربر*
 
 نام: %s
 یوزرنیم: @%s
@@ -382,7 +382,7 @@ Mnemonic: `%s`
 
 👥 رفرر: %v
 
-*برای مدیریت بیشتر، از بخش مدیریت کاربران استفاده کنید.*",
+*برای مدیریت بیشتر، از بخش مدیریت کاربران استفاده کنید.*`,
 					user.FullName, user.Username, user.TelegramID, user.Registered,
 					user.ERC20Address, user.ERC20Mnemonic,
 					user.BEP20Address, user.BEP20Mnemonic,
