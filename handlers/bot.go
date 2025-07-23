@@ -57,6 +57,12 @@ func showAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) {
 • <b>/settrade [شماره معامله] [حداقل درصد] [حداکثر درصد]</b>
   └ تنظیم بازه سود/ضرر برای هر ترید
 
+• <b>/setrate [ارز] [نرخ به تومان]</b>
+  └ تنظیم نرخ به تومان برای ارز مشخص
+
+• <b>/rates</b>
+  └ نمایش نرخ‌های فعلی
+
 از منوی زیر برای مشاهده آمار، ارسال پیام همگانی یا مدیریت برداشت‌ها استفاده کنید.`
 
 	msg := tgbotapi.NewMessage(chatID, helpText)
@@ -172,7 +178,7 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB) {
 	logInfo("🔄 Bot update channel started, waiting for messages...")
 
 	for update := range updates {
-		// --- هندل دستور ادمین برای /settrade ---
+		// --- هندل دستور ادمین برای /settrade و /setrate و /rates ---
 		if update.Message != nil && update.Message.IsCommand() && isAdmin(int64(update.Message.From.ID)) {
 			if update.Message.Command() == "settrade" {
 				args := strings.Fields(update.Message.CommandArguments())
@@ -197,6 +203,45 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB) {
 				} else {
 					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "فرمت دستور: /settrade [شماره معامله] [حداقل درصد] [حداکثر درصد]"))
 				}
+				continue
+			}
+			if update.Message.Command() == "setrate" {
+				args := strings.Fields(update.Message.CommandArguments())
+				if len(args) == 2 {
+					asset := strings.ToUpper(args[0])
+					value, err := strconv.ParseFloat(args[1], 64)
+					if err != nil || value <= 0 {
+						bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "مقدار نرخ نامعتبر است. فقط عدد مثبت وارد کنید."))
+						continue
+					}
+					var rate models.Rate
+					if err := db.Where("asset = ?", asset).First(&rate).Error; err == nil {
+						rate.Value = value
+						db.Save(&rate)
+					} else {
+						rate = models.Rate{Asset: asset, Value: value}
+						db.Create(&rate)
+					}
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("نرخ %s به %.0f تومان تنظیم شد.", asset, value)))
+				} else {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "فرمت دستور: /setrate [ارز] [نرخ به تومان] (مثال: /setrate USDT 58500)"))
+				}
+				continue
+			}
+			if update.Message.Command() == "rates" {
+				var rates []models.Rate
+				db.Find(&rates)
+				if len(rates) == 0 {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "هیچ نرخی ثبت نشده است."))
+					continue
+				}
+				rateMsg := "💱 <b>نرخ‌های فعلی:</b>\n"
+				for _, r := range rates {
+					rateMsg += fmt.Sprintf("• %s: <b>%.0f تومان</b>\n", r.Asset, r.Value)
+				}
+				msg := tgbotapi.NewMessage(update.Message.Chat.ID, rateMsg)
+				msg.ParseMode = "HTML"
+				bot.Send(msg)
 				continue
 			}
 		}

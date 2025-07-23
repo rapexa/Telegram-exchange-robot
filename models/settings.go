@@ -6,3 +6,9 @@ type TradeRange struct {
 	MinPercent float64
 	MaxPercent float64
 }
+
+type Rate struct {
+	ID    uint    `gorm:"primaryKey"`
+	Asset string  `gorm:"uniqueIndex"` // مثلاً USDT
+	Value float64 // نرخ به تومان
+}
