@@ -77,6 +77,12 @@ func showAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) {
 }
 
 func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
+	// Check if admin is in broadcast mode first
+	if adminBroadcastState[msg.From.ID] == "awaiting_broadcast" {
+		// Skip menu handling, let the broadcast handler take care of it
+		return
+	}
+
 	switch msg.Text {
 	case "📊 آمار کلی":
 		// Show global stats
