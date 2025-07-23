@@ -142,6 +142,9 @@ func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 	case "⬅️ بازگشت":
 		showMainMenu(bot, db, msg.Chat.ID, msg.From.ID)
 		return
+	case "⬅️ بازگشت به پنل ادمین":
+		showAdminMenu(bot, db, msg.Chat.ID)
+		return
 	}
 
 	if adminBroadcastState[msg.From.ID] == "confirm_broadcast" {
@@ -733,6 +736,7 @@ Mnemonic: %s
 						adminBroadcastDraft[userID] = nil
 						msg := tgbotapi.NewMessage(userID, "✅ پیام همگانی با موفقیت ارسال شد.")
 						bot.Send(msg)
+						showAdminMenu(bot, db, userID)
 						bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "پیام ارسال شد"))
 						continue
 					} else if data == "broadcast_cancel" {
@@ -894,6 +898,7 @@ Mnemonic: %s
 				adminBroadcastDraft[userID] = nil
 				msg := tgbotapi.NewMessage(userID, "✅ پیام همگانی با موفقیت ارسال شد.")
 				bot.Send(msg)
+				showAdminMenu(bot, db, userID)
 				continue
 			} else if data == "broadcast_cancel" {
 				adminBroadcastState[userID] = ""
