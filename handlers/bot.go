@@ -79,6 +79,17 @@ func showAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) {
 func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 	// Check if admin is in broadcast mode first
 	if adminBroadcastState[msg.From.ID] == "awaiting_broadcast" {
+		// Check if admin wants to go back to admin panel
+		if msg.Text == "⬅️ بازگشت به پنل ادمین" {
+			// Clear broadcast state
+			adminState[msg.From.ID] = ""
+			adminBroadcastState[msg.From.ID] = ""
+			adminBroadcastDraft[msg.From.ID] = nil
+
+			// Show admin menu again
+			showAdminMenu(bot, db, msg.Chat.ID)
+			return
+		}
 		// Skip menu handling, let the broadcast handler take care of it
 		return
 	}
@@ -111,7 +122,18 @@ func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 		// Set admin state for broadcast
 		adminState[msg.From.ID] = "awaiting_broadcast"
 		adminBroadcastState[msg.From.ID] = "awaiting_broadcast"
+
+		// Create keyboard with back button
+		cancelKeyboard := tgbotapi.NewReplyKeyboard(
+			tgbotapi.NewKeyboardButtonRow(
+				tgbotapi.NewKeyboardButton("⬅️ بازگشت به پنل ادمین"),
+			),
+		)
+		cancelKeyboard.ResizeKeyboard = true
+		cancelKeyboard.OneTimeKeyboard = false
+
 		m := tgbotapi.NewMessage(msg.Chat.ID, "✏️ پیام خود را برای ارسال همگانی بنویسید:")
+		m.ReplyMarkup = cancelKeyboard
 		bot.Send(m)
 		return
 	case "📋 مدیریت برداشت‌ها":
