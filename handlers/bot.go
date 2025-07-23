@@ -999,6 +999,7 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 • نام و نام خانوادگی به فارسی باشه 
 • حداقل دو تا کلمه بنویس (نام و فامیل)
 • هر کلمه حداقل ۲ حرف داشته باشه
+• این نام باید با نام روی کارت بانکیت یکی باشه
 
 🔄 حالا دوباره امتحان کن! مطمئنم این بار درست میشه 😊`
 
@@ -1024,7 +1025,8 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 💡 *نکات مهم:*
 • شماره شبا باید با IR شروع شود
 • شامل ۲۴ رقم بعد از IR باشد
-• بدون فاصله یا کاراکتر اضافی`
+• بدون فاصله یا کاراکتر اضافی
+• بعداً شماره کارت همین حساب رو وارد کن`
 
 		message := tgbotapi.NewMessage(msg.Chat.ID, fmt.Sprintf(shebaMsg, msg.Text))
 		message.ParseMode = "Markdown"
@@ -1071,7 +1073,8 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 💡 *نکات مهم:*
 • شماره کارت باید ۱۶ رقم باشد
 • بدون فاصله یا کاراکتر اضافی
-• فقط اعداد مجاز هستند`
+• فقط اعداد مجاز هستند
+• حتماً شماره کارت همون حسابی که شباش رو دادی`
 
 		message := tgbotapi.NewMessage(msg.Chat.ID, fmt.Sprintf(cardMsg, msg.Text))
 		message.ParseMode = "Markdown"
@@ -1150,6 +1153,8 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 🏦 شبا: %s
 💳 کارت: %s
 
+✅ <b>نکته:</b> اطلاعات شما ثبت شد - شبا و کارت از یک حساب واحد
+
 🚀 حالا می‌تونی از همه امکانات ربات استفاده کنی!`, info["full_name"], info["sheba"], info["card_number"])
 
 		message := tgbotapi.NewMessage(msg.Chat.ID, successMsg)
@@ -1162,7 +1167,7 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 	if state == "withdraw_amount" {
 		if msg.Text == "لغو برداشت" {
 			clearRegState(userID)
-			showMainMenu(bot, db, msg.Chat.ID, userID)
+			showWalletMenu(bot, db, msg.Chat.ID, userID)
 			return true
 		}
 
@@ -1278,12 +1283,15 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 		bot.Send(confirmMsgToUser)
 
 		clearRegState(userID)
+
+		// بازگشت به منوی کیف پول
+		showWalletMenu(bot, db, msg.Chat.ID, userID)
 		return true
 	}
 	if state == "reward_withdraw_amount" {
 		if msg.Text == "لغو برداشت" {
 			clearRegState(userID)
-			showMainMenu(bot, db, msg.Chat.ID, userID)
+			showRewardsMenu(bot, db, msg.Chat.ID, userID)
 			return true
 		}
 		amount, err := strconv.ParseFloat(msg.Text, 64)
@@ -1322,8 +1330,195 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 		bot.Send(msgToAdmin)
 		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "✅ درخواست برداشت پاداش ثبت شد و در انتظار تایید ادمین است."))
 		clearRegState(userID)
+
+		// بازگشت به منوی پاداش
+		showRewardsMenu(bot, db, msg.Chat.ID, userID)
 		return true
 	}
+
+	// --- Bank Info Update States ---
+	if state == "update_bank_sheba" {
+		if msg.Text == "❌ لغو تغییر اطلاعات" {
+			clearRegState(userID)
+			showMainMenu(bot, db, msg.Chat.ID, userID)
+			return true
+		}
+
+		// Validate Sheba format
+		if !models.ValidateSheba(msg.Text) {
+			errorMsg := `😊 <b>شماره شبا کمی اشتباه شده!</b>
+
+نگران نباش، همه جا پیش میاد!
+
+🏦 <b>مثال درست:</b> IR520630144905901219088011
+
+💡 <b>نکته‌های مهم:</b>
+• حتماً با IR شروع کن
+• بعدش ۲۴ تا رقم بذار
+• هیچ فاصله یا خط تیره نذار
+• بعداً شماره کارت همین حساب رو وارد کن
+
+🔄 یه بار دیگه امتحان کن! 😉`
+
+			message := tgbotapi.NewMessage(msg.Chat.ID, errorMsg)
+			message.ParseMode = "HTML"
+			bot.Send(message)
+			return true
+		}
+
+		// Save new sheba, ask for card number
+		saveRegTemp(userID, "new_sheba", msg.Text)
+		setRegState(userID, "update_bank_card")
+
+		cardMsg := `✅ <b>مرحله ۱ تکمیل شد!</b>
+
+🏦 شماره شبا جدید: <code>%s</code>
+
+📝 <b>مرحله ۲: شماره کارت جدید</b>
+
+لطفاً شماره کارت بانکی جدید خود را وارد کنید:
+
+💡 <b>مثال درست:</b> 6037998215325563
+
+⚠️ <b>نکته‌های مهم:</b>
+• حتماً ۱۶ تا رقم باشه
+• هیچ فاصله یا خط تیره نذار
+• فقط عدد بنویس
+• حتماً به نام خودت باشه
+• حتماً شماره کارت همون حسابی که شباش رو دادی`
+
+		message := tgbotapi.NewMessage(msg.Chat.ID, fmt.Sprintf(cardMsg, msg.Text))
+		message.ParseMode = "HTML"
+		cancelKeyboard := tgbotapi.NewReplyKeyboard(
+			tgbotapi.NewKeyboardButtonRow(
+				tgbotapi.NewKeyboardButton("❌ لغو تغییر اطلاعات"),
+			),
+		)
+		cancelKeyboard.ResizeKeyboard = true
+		message.ReplyMarkup = cancelKeyboard
+		bot.Send(message)
+		return true
+	} else if state == "update_bank_card" {
+		if msg.Text == "❌ لغو تغییر اطلاعات" {
+			clearRegState(userID)
+			showMainMenu(bot, db, msg.Chat.ID, userID)
+			return true
+		}
+
+		// Validate card number format
+		if !models.ValidateCardNumber(msg.Text) {
+			errorMsg := `💳 <b>شماره کارت کمی اشتباهه!</b>
+
+بیا دوباره درستش کنیم!
+
+💳 <b>مثال درست:</b> 6037998215325563
+
+💡 <b>نکته‌های مهم:</b>
+• حتماً ۱۶ تا رقم باشه
+• هیچ فاصله یا خط تیره نذار
+• فقط عدد بنویس
+• حتماً شماره کارت همون حسابی که شباش رو دادی
+
+🔄 الان دوباره تست کن! 🙂`
+
+			message := tgbotapi.NewMessage(msg.Chat.ID, errorMsg)
+			message.ParseMode = "HTML"
+			bot.Send(message)
+			return true
+		}
+
+		// Save new card number, show confirmation
+		saveRegTemp(userID, "new_card", msg.Text)
+		setRegState(userID, "update_bank_confirm")
+
+		regTemp.RLock()
+		info := regTemp.m[userID]
+		regTemp.RUnlock()
+
+		confirmMsg := fmt.Sprintf(`✅ <b>تایید نهایی اطلاعات جدید</b>
+
+📋 <b>اطلاعات جدید شما:</b>
+• شماره شبا: <code>%s</code>
+• شماره کارت: <code>%s</code>
+
+⚠️ <b>نکات مهم:</b>
+• این اطلاعات جایگزین اطلاعات قبلی شما خواهد شد
+• شماره شبا و کارت باید از یک حساب/کارت واحد باشند
+
+✅ اگر اطلاعات درست است، دکمه تایید را بزنید.`,
+			info["new_sheba"], info["new_card"])
+
+		keyboard := tgbotapi.NewReplyKeyboard(
+			tgbotapi.NewKeyboardButtonRow(
+				tgbotapi.NewKeyboardButton("✅ تایید و ذخیره"),
+			),
+			tgbotapi.NewKeyboardButtonRow(
+				tgbotapi.NewKeyboardButton("❌ لغو تغییر اطلاعات"),
+			),
+		)
+		keyboard.ResizeKeyboard = true
+
+		message := tgbotapi.NewMessage(msg.Chat.ID, confirmMsg)
+		message.ParseMode = "HTML"
+		message.ReplyMarkup = keyboard
+		bot.Send(message)
+		return true
+	} else if state == "update_bank_confirm" {
+		if msg.Text == "❌ لغو تغییر اطلاعات" {
+			clearRegState(userID)
+			showMainMenu(bot, db, msg.Chat.ID, userID)
+			return true
+		}
+
+		if msg.Text == "✅ تایید و ذخیره" {
+			regTemp.RLock()
+			info := regTemp.m[userID]
+			regTemp.RUnlock()
+
+			// Update user bank info in database
+			user, err := getUserByTelegramID(db, userID)
+			if err != nil || user == nil {
+				bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "😔 متاسفانه مشکلی پیش اومد! با پشتیبانی تماس بگیر."))
+				clearRegState(userID)
+				return true
+			}
+
+			user.Sheba = info["new_sheba"]
+			user.CardNumber = info["new_card"]
+
+			if err := db.Save(user).Error; err != nil {
+				bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "😔 متاسفانه مشکلی در ذخیره اطلاعات پیش اومد! لطفاً دوباره تلاش کن."))
+				clearRegState(userID)
+				return true
+			}
+
+			clearRegState(userID)
+
+			successMsg := fmt.Sprintf(`🎉 <b>اطلاعات بانکی با موفقیت به‌روزرسانی شد!</b>
+
+✅ <b>اطلاعات جدید شما:</b>
+• شماره شبا: <code>%s</code>
+• شماره کارت: <code>%s</code>
+
+💡 <b>نکات مهم:</b>
+• از این پس تمام برداشت‌ها به این حساب واریز خواهد شد
+• شبا و کارت از یک حساب واحد هستند`,
+				user.Sheba, user.CardNumber)
+
+			message := tgbotapi.NewMessage(msg.Chat.ID, successMsg)
+			message.ParseMode = "HTML"
+			bot.Send(message)
+
+			// بازگشت به منوی اصلی
+			showMainMenu(bot, db, msg.Chat.ID, userID)
+			return true
+		}
+
+		// اگر هیچ گزینه معتبری انتخاب نشد
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "😅 لطفاً یکی از گزینه‌های موجود را انتخاب کن!"))
+		return true
+	}
+
 	return false
 }
 
@@ -1538,6 +1733,12 @@ func handleSubmenuActions(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Messa
 	case "👥 زیرمجموعه‌ها":
 		showReferralList(bot, db, msg)
 		return
+	case "🏦 تغییر اطلاعات بانکی":
+		showBankInfoChangeMenu(bot, db, msg.Chat.ID, userID)
+		return
+	case "✏️ شروع تغییر اطلاعات":
+		startBankInfoUpdate(bot, db, msg.Chat.ID, userID)
+		return
 	default:
 		showMainMenu(bot, db, msg.Chat.ID, userID)
 	}
@@ -1640,6 +1841,9 @@ func showWalletMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int6
 			tgbotapi.NewKeyboardButton("💳 واریز USDT"),
 		),
 		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("🏦 تغییر اطلاعات بانکی"),
+		),
+		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("⬅️ بازگشت"),
 		),
 	)
@@ -1725,6 +1929,9 @@ func showRewardsMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int
 		),
 		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("💰 دریافت پاداش"),
+		),
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("🏦 تغییر اطلاعات بانکی"),
 		),
 		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("⬅️ بازگشت"),
@@ -2697,6 +2904,87 @@ func showCurrentRates(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) {
 
 	message := tgbotapi.NewMessage(chatID, rateMsg)
 	message.ParseMode = "HTML"
+	bot.Send(message)
+}
+
+func showBankInfoChangeMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64) {
+	user, err := getUserByTelegramID(db, userID)
+	if err != nil || user == nil {
+		bot.Send(tgbotapi.NewMessage(chatID, "😔  یه مشکلی پیش اومد. \n\nاول ثبت‌نام کن، بعد برگرد! 😊"))
+		return
+	}
+
+	// نمایش اطلاعات فعلی
+	currentInfoMsg := fmt.Sprintf(`🏦 <b>تغییر اطلاعات بانکی</b>
+
+📋 <b>اطلاعات فعلی شما:</b>
+• شماره شبا: <code>%s</code>
+• شماره کارت: <code>%s</code>
+
+💡 <b>دلایل تغییر اطلاعات:</b>
+• کارت قبلی از دسترس خارج شده
+• کارت جدید دریافت کرده‌اید
+• تغییر بانک
+
+⚠️ <b>نکات مهم:</b>
+• شماره کارت و شبا حتماً باید به نام خودتان باشد: <b>%s</b>
+• شماره شبا و شماره کارت حتماً باید از یک کارت/حساب باشند
+
+🚀 برای شروع تغییر اطلاعات، دکمه زیر را بزنید.`,
+		user.Sheba, user.CardNumber, user.FullName)
+
+	// کیبورد برای شروع تغییر
+	keyboard := tgbotapi.NewReplyKeyboard(
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("✏️ شروع تغییر اطلاعات"),
+		),
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("⬅️ بازگشت"),
+		),
+	)
+	keyboard.ResizeKeyboard = true
+	keyboard.OneTimeKeyboard = false
+
+	message := tgbotapi.NewMessage(chatID, currentInfoMsg)
+	message.ParseMode = "HTML"
+	message.ReplyMarkup = keyboard
+	bot.Send(message)
+}
+
+func startBankInfoUpdate(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64) {
+	// شروع فرآیند به‌روزرسانی اطلاعات بانکی
+	setRegState(userID, "update_bank_sheba")
+
+	// مقداردهی اولیه regTemp
+	regTemp.Lock()
+	regTemp.m[userID] = make(map[string]string)
+	regTemp.Unlock()
+
+	// کیبورد برای لغو
+	cancelKeyboard := tgbotapi.NewReplyKeyboard(
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("❌ لغو تغییر اطلاعات"),
+		),
+	)
+	cancelKeyboard.ResizeKeyboard = true
+	cancelKeyboard.OneTimeKeyboard = false
+
+	shebaMsg := `📝 <b>مرحله ۱: شماره شبا جدید</b>
+
+لطفاً شماره شبا جدید حساب بانکی خود را وارد کنید:
+
+💡 <b>مثال درست:</b> IR520630144905901219088011
+
+⚠️ <b>نکته‌های مهم:</b>
+• حتماً با IR شروع کن
+• بعدش ۲۴ تا رقم بذار
+• هیچ فاصله یا خط تیره نذار
+• حتماً به نام خودت باشه
+• بعداً شماره کارت همین حساب رو وارد کن`
+
+	message := tgbotapi.NewMessage(chatID, shebaMsg)
+	message.ParseMode = "HTML"
+	message.ReplyMarkup = cancelKeyboard
 	bot.Send(message)
 }
 
