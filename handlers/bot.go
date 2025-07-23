@@ -65,13 +65,13 @@ func showAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) {
 • `/userinfo USER_ID` — مشاهده اطلاعات کامل کاربر و کیف پول
 • `/backup` — دریافت فایل پشتیبان دیتابیس
 
-• <b>/settrade [شماره معامله] [حداقل درصد] [حداکثر درصد]</b>
+• `/settrade [شماره معامله] [حداقل درصد] [حداکثر درصد]`
   └ تنظیم بازه سود/ضرر برای هر ترید
 
-• <b>/setrate [ارز] [نرخ به تومان]</b>
+• `/setrate [ارز] [نرخ به تومان]`
   └ تنظیم نرخ به تومان برای ارز مشخص
 
-• <b>/rates</b>
+• `/rates`
   └ نمایش نرخ‌های فعلی
 
 از منوی زیر برای مشاهده آمار، ارسال پیام همگانی، مدیریت برداشت‌ها یا پشتیبان‌گیری استفاده کنید.`
@@ -294,8 +294,7 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB) {
 				}
 				user.ERC20Balance += amount
 				db.Save(user)
-				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("✅ %s | %d
-موجودی ERC20 کاربر به میزان %s تتر افزایش یافت.", user.FullName, user.TelegramID, formatToman(amount))))
+				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("✅ %s | %d\nموجودی ERC20 کاربر به میزان %s تتر افزایش یافت.", user.FullName, user.TelegramID, formatToman(amount))))
 				continue
 			}
 			if update.Message.Command() == "subbalance" {
@@ -321,8 +320,7 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB) {
 				}
 				user.ERC20Balance -= amount
 				db.Save(user)
-				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("✅ %s | %d
-موجودی ERC20 کاربر به میزان %s تتر کاهش یافت.", user.FullName, user.TelegramID, formatToman(amount))))
+				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("✅ %s | %d\nموجودی ERC20 کاربر به میزان %s تتر کاهش یافت.", user.FullName, user.TelegramID, formatToman(amount))))
 				continue
 			}
 			if update.Message.Command() == "setbalance" {
@@ -344,8 +342,7 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB) {
 				}
 				user.ERC20Balance = amount
 				db.Save(user)
-				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("✅ %s | %d
-موجودی ERC20 کاربر به %s تتر تنظیم شد.", user.FullName, user.TelegramID, formatToman(amount))))
+				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("✅ %s | %d\nموجودی ERC20 کاربر به %s تتر تنظیم شد.", user.FullName, user.TelegramID, formatToman(amount))))
 				continue
 			}
 			if update.Message.Command() == "userinfo" {
