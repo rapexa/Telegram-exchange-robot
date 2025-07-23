@@ -9,6 +9,6 @@ type TradeRange struct {
 
 type Rate struct {
 	ID    uint    `gorm:"primaryKey"`
-	Asset string  `gorm:"uniqueIndex"` // مثلاً USDT
+	Asset string  `gorm:"size:32;uniqueIndex"` // مثلاً USDT
 	Value float64 // نرخ به تومان
 }
