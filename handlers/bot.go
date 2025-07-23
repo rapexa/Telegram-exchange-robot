@@ -42,6 +42,9 @@ func showAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) {
 			tgbotapi.NewKeyboardButton("📊 آمار کلی"),
 		),
 		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("👥 مشاهده همه کاربران"),
+		),
+		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("📢 پیام همگانی"),
 		),
 		tgbotapi.NewKeyboardButtonRow(
@@ -93,6 +96,10 @@ func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 		message := tgbotapi.NewMessage(msg.Chat.ID, statsMsg)
 		message.ParseMode = "HTML"
 		bot.Send(message)
+		return
+	case "👥 مشاهده همه کاربران":
+		adminUsersPage[msg.From.ID] = 0 // Reset to first page
+		showUsersPage(bot, db, msg.Chat.ID, msg.From.ID, 0)
 		return
 	case "📢 پیام همگانی":
 		// Set admin state for broadcast
@@ -159,6 +166,9 @@ var adminState = make(map[int64]string)
 
 var adminBroadcastState = make(map[int64]string) // "awaiting_broadcast", "confirm_broadcast", ""
 var adminBroadcastDraft = make(map[int64]*tgbotapi.Message)
+
+// Track admin users list pagination
+var adminUsersPage = make(map[int64]int) // userID -> current page number
 
 func logInfo(format string, v ...interface{}) {
 	log.Printf("[INFO] "+format, v...)
@@ -546,8 +556,32 @@ Mnemonic: %s
 				continue
 			}
 			if isAdmin(userID) {
-				state := adminBroadcastState[userID]
 				data := update.CallbackQuery.Data
+
+				// Handle users pagination callbacks
+				if strings.HasPrefix(data, "users_page_") {
+					pageStr := strings.TrimPrefix(data, "users_page_")
+					page, err := strconv.Atoi(pageStr)
+					if err == nil {
+						// Edit the existing message with new page
+						showUsersPageEdit(bot, db, update.CallbackQuery.Message.Chat.ID, userID, page, update.CallbackQuery.Message.MessageID)
+						bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, fmt.Sprintf("صفحه %d", page+1)))
+						continue
+					}
+				}
+				if data == "users_close" {
+					// Delete the users list message
+					deleteMsg := tgbotapi.NewDeleteMessage(update.CallbackQuery.Message.Chat.ID, update.CallbackQuery.Message.MessageID)
+					bot.Request(deleteMsg)
+					bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "لیست بسته شد"))
+					continue
+				}
+				if data == "users_current_page" {
+					bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "شما در این صفحه هستید"))
+					continue
+				}
+
+				state := adminBroadcastState[userID]
 				if strings.HasPrefix(data, "approve_withdraw_") {
 					txIDstr := strings.TrimPrefix(data, "approve_withdraw_")
 					txID, _ := strconv.Atoi(txIDstr)
@@ -2004,6 +2038,246 @@ func confirmBroadcastKeyboard() tgbotapi.InlineKeyboardMarkup {
 			tgbotapi.NewInlineKeyboardButtonData("لغو ارسال", "broadcast_cancel"),
 		),
 	)
+}
+
+func showUsersPageEdit(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID int64, page int, messageID int) {
+	const usersPerPage = 10
+
+	// Get total count first
+	var totalUsers int64
+	db.Model(&models.User{}).Count(&totalUsers)
+
+	if totalUsers == 0 {
+		editMsg := tgbotapi.NewEditMessageText(chatID, messageID, "👥 هیچ کاربری در دیتابیس وجود ندارد.")
+		editMsg.ParseMode = "HTML"
+		bot.Send(editMsg)
+		return
+	}
+
+	totalPages := int((totalUsers + usersPerPage - 1) / usersPerPage)
+
+	// Validate page number
+	if page < 0 {
+		page = 0
+	}
+	if page >= totalPages {
+		page = totalPages - 1
+	}
+
+	// Update admin's current page
+	adminUsersPage[adminID] = page
+
+	// Get users for current page with optimized query
+	var users []struct {
+		models.User
+		ReferralCount int64 `gorm:"column:referral_count"`
+	}
+
+	offset := page * usersPerPage
+
+	// Single optimized query with LEFT JOIN for referral count
+	db.Table("users").
+		Select("users.*, COALESCE(COUNT(referrals.id), 0) as referral_count").
+		Joins("LEFT JOIN users AS referrals ON referrals.referrer_id = users.id AND referrals.registered = true").
+		Group("users.id").
+		Order("users.created_at desc").
+		Limit(usersPerPage).
+		Offset(offset).
+		Find(&users)
+
+	var usersList string
+	usersList = fmt.Sprintf("👥 <b>لیست کاربران (صفحه %d از %d)</b>\n", page+1, totalPages)
+	usersList += fmt.Sprintf("📊 <b>مجموع:</b> %d کاربر\n\n", totalUsers)
+
+	for _, userData := range users {
+		user := userData.User
+		referralCount := userData.ReferralCount
+
+		status := "❌ ناقص"
+		if user.Registered {
+			status = "✅ تکمیل"
+		}
+
+		// محاسبه موجودی کل
+		totalBalance := user.ERC20Balance + user.BEP20Balance + user.TradeBalance + user.RewardBalance
+
+		usersList += fmt.Sprintf(`🆔 <b>%d</b> | %s
+👤 <b>نام:</b> %s
+📱 <b>یوزرنیم:</b> @%s
+🔑 <b>User ID:</b> <code>%d</code>
+💰 <b>موجودی:</b> %.2f USDT
+🎁 <b>پاداش:</b> %.2f USDT
+👥 <b>زیرمجموعه:</b> %d نفر
+📅 <b>تاریخ عضویت:</b> %s
+📋 <b>وضعیت:</b> %s
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+`, user.TelegramID, user.FullName, user.FullName, user.Username, user.ID, totalBalance, user.ReferralReward, referralCount, user.CreatedAt.Format("02/01/2006"), status)
+	}
+
+	// Create navigation buttons
+	var buttons [][]tgbotapi.InlineKeyboardButton
+
+	// Navigation row
+	var navRow []tgbotapi.InlineKeyboardButton
+
+	if page > 0 {
+		navRow = append(navRow, tgbotapi.NewInlineKeyboardButtonData("⬅️ قبلی", fmt.Sprintf("users_page_%d", page-1)))
+	}
+
+	navRow = append(navRow, tgbotapi.NewInlineKeyboardButtonData(fmt.Sprintf("📄 %d/%d", page+1, totalPages), "users_current_page"))
+
+	if page < totalPages-1 {
+		navRow = append(navRow, tgbotapi.NewInlineKeyboardButtonData("➡️ بعدی", fmt.Sprintf("users_page_%d", page+1)))
+	}
+
+	if len(navRow) > 0 {
+		buttons = append(buttons, navRow)
+	}
+
+	// Quick jump buttons (if more than 3 pages)
+	if totalPages > 3 {
+		var jumpRow []tgbotapi.InlineKeyboardButton
+		jumpRow = append(jumpRow, tgbotapi.NewInlineKeyboardButtonData("🔢 اول", "users_page_0"))
+		if totalPages > 1 {
+			jumpRow = append(jumpRow, tgbotapi.NewInlineKeyboardButtonData("🔢 آخر", fmt.Sprintf("users_page_%d", totalPages-1)))
+		}
+		buttons = append(buttons, jumpRow)
+	}
+
+	// Refresh and close buttons
+	actionRow := []tgbotapi.InlineKeyboardButton{
+		tgbotapi.NewInlineKeyboardButtonData("🔄 بروزرسانی", fmt.Sprintf("users_page_%d", page)),
+		tgbotapi.NewInlineKeyboardButtonData("❌ بستن", "users_close"),
+	}
+	buttons = append(buttons, actionRow)
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(buttons...)
+
+	editMsg := tgbotapi.NewEditMessageText(chatID, messageID, usersList)
+	editMsg.ParseMode = "HTML"
+	editMsg.ReplyMarkup = &keyboard
+	bot.Send(editMsg)
+}
+
+func showUsersPage(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID int64, page int) {
+	const usersPerPage = 10
+
+	// Get total count first
+	var totalUsers int64
+	db.Model(&models.User{}).Count(&totalUsers)
+
+	if totalUsers == 0 {
+		bot.Send(tgbotapi.NewMessage(chatID, "👥 هیچ کاربری در دیتابیس وجود ندارد."))
+		return
+	}
+
+	totalPages := int((totalUsers + usersPerPage - 1) / usersPerPage)
+
+	// Validate page number
+	if page < 0 {
+		page = 0
+	}
+	if page >= totalPages {
+		page = totalPages - 1
+	}
+
+	// Update admin's current page
+	adminUsersPage[adminID] = page
+
+	// Get users for current page with optimized query
+	var users []struct {
+		models.User
+		ReferralCount int64 `gorm:"column:referral_count"`
+	}
+
+	offset := page * usersPerPage
+
+	// Single optimized query with LEFT JOIN for referral count
+	db.Table("users").
+		Select("users.*, COALESCE(COUNT(referrals.id), 0) as referral_count").
+		Joins("LEFT JOIN users AS referrals ON referrals.referrer_id = users.id AND referrals.registered = true").
+		Group("users.id").
+		Order("users.created_at desc").
+		Limit(usersPerPage).
+		Offset(offset).
+		Find(&users)
+
+	var usersList string
+	usersList = fmt.Sprintf("👥 <b>لیست کاربران (صفحه %d از %d)</b>\n", page+1, totalPages)
+	usersList += fmt.Sprintf("📊 <b>مجموع:</b> %d کاربر\n\n", totalUsers)
+
+	for _, userData := range users {
+		user := userData.User
+		referralCount := userData.ReferralCount
+
+		status := "❌ ناقص"
+		if user.Registered {
+			status = "✅ تکمیل"
+		}
+
+		// محاسبه موجودی کل
+		totalBalance := user.ERC20Balance + user.BEP20Balance + user.TradeBalance + user.RewardBalance
+
+		usersList += fmt.Sprintf(`🆔 <b>%d</b> | %s
+👤 <b>نام:</b> %s
+📱 <b>یوزرنیم:</b> @%s
+🔑 <b>User ID:</b> <code>%d</code>
+💰 <b>موجودی:</b> %.2f USDT
+🎁 <b>پاداش:</b> %.2f USDT
+👥 <b>زیرمجموعه:</b> %d نفر
+📅 <b>تاریخ عضویت:</b> %s
+📋 <b>وضعیت:</b> %s
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+`, user.TelegramID, user.FullName, user.FullName, user.Username, user.ID, totalBalance, user.ReferralReward, referralCount, user.CreatedAt.Format("02/01/2006"), status)
+	}
+
+	// Create navigation buttons
+	var buttons [][]tgbotapi.InlineKeyboardButton
+
+	// Navigation row
+	var navRow []tgbotapi.InlineKeyboardButton
+
+	if page > 0 {
+		navRow = append(navRow, tgbotapi.NewInlineKeyboardButtonData("⬅️ قبلی", fmt.Sprintf("users_page_%d", page-1)))
+	}
+
+	navRow = append(navRow, tgbotapi.NewInlineKeyboardButtonData(fmt.Sprintf("📄 %d/%d", page+1, totalPages), "users_current_page"))
+
+	if page < totalPages-1 {
+		navRow = append(navRow, tgbotapi.NewInlineKeyboardButtonData("➡️ بعدی", fmt.Sprintf("users_page_%d", page+1)))
+	}
+
+	if len(navRow) > 0 {
+		buttons = append(buttons, navRow)
+	}
+
+	// Quick jump buttons (if more than 3 pages)
+	if totalPages > 3 {
+		var jumpRow []tgbotapi.InlineKeyboardButton
+		jumpRow = append(jumpRow, tgbotapi.NewInlineKeyboardButtonData("🔢 اول", "users_page_0"))
+		if totalPages > 1 {
+			jumpRow = append(jumpRow, tgbotapi.NewInlineKeyboardButtonData("🔢 آخر", fmt.Sprintf("users_page_%d", totalPages-1)))
+		}
+		buttons = append(buttons, jumpRow)
+	}
+
+	// Refresh and close buttons
+	actionRow := []tgbotapi.InlineKeyboardButton{
+		tgbotapi.NewInlineKeyboardButtonData("🔄 بروزرسانی", fmt.Sprintf("users_page_%d", page)),
+		tgbotapi.NewInlineKeyboardButtonData("❌ بستن", "users_close"),
+	}
+	buttons = append(buttons, actionRow)
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(buttons...)
+
+	msg := tgbotapi.NewMessage(chatID, usersList)
+	msg.ParseMode = "HTML"
+	msg.ReplyMarkup = keyboard
+	bot.Send(msg)
 }
 
 func showAllPendingWithdrawals(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) {
