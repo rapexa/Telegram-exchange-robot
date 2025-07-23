@@ -222,7 +222,7 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB) {
 						rate = models.Rate{Asset: asset, Value: value}
 						db.Create(&rate)
 					}
-					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("نرخ %s به %.0f تومان تنظیم شد.", asset, value)))
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("نرخ <b>%s</b> به <b>%,.0f تومان</b> با موفقیت ثبت شد.\n\n<code>مثال کاربرد: اگر کاربر ۱۰۰ تتر بخواهد، مبلغ معادل: %,.0f تومان خواهد بود.</code>", asset, value, value*100)))
 				} else {
 					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "فرمت دستور: /setrate [ارز] [نرخ به تومان] (مثال: /setrate USDT 58500)"))
 				}
@@ -235,10 +235,13 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB) {
 					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "هیچ نرخی ثبت نشده است."))
 					continue
 				}
-				rateMsg := "💱 <b>نرخ‌های فعلی:</b>\n"
+				rateMsg := "<b>💱 نرخ‌های فعلی ارزها</b>\n\n"
+				rateMsg += "<b>ارز</b>      <b>نرخ (تومان)</b>\n"
+				rateMsg += "--------------------------\n"
 				for _, r := range rates {
-					rateMsg += fmt.Sprintf("• %s: <b>%.0f تومان</b>\n", r.Asset, r.Value)
+					rateMsg += fmt.Sprintf("%-8s %,.0f\n", r.Asset, r.Value)
 				}
+				rateMsg += "\n<code>برای تغییر نرخ هر ارز، از دستور /setrate [ارز] [نرخ] استفاده کنید.</code>"
 				msg := tgbotapi.NewMessage(update.Message.Chat.ID, rateMsg)
 				msg.ParseMode = "HTML"
 				bot.Send(msg)
