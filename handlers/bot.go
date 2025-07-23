@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"os"
+	"os/exec"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"gorm.io/gorm"
@@ -44,15 +46,24 @@ func showAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) {
 		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("📋 مدیریت برداشت‌ها"),
 		),
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("📦 پشتیبان‌گیری"),
+		),
 	)
 	menu.ResizeKeyboard = true
 	menu.OneTimeKeyboard = false
 
-	helpText := `🛠️ <b>پنل مدیریت ربات</b>
+	helpText := `🛠️ *پنل مدیریت ربات*
 
 به پنل مدیریت خوش آمدید!
 
-<b>دستورات سریع:</b>
+*دستورات سریع:*
+
+• `/addbalance USER_ID AMOUNT` — افزایش موجودی کاربر
+• `/subbalance USER_ID AMOUNT` — کاهش موجودی کاربر
+• `/setbalance USER_ID AMOUNT` — تنظیم موجودی کاربر
+• `/userinfo USER_ID` — مشاهده اطلاعات کامل کاربر و کیف پول
+• `/backup` — دریافت فایل پشتیبان دیتابیس
 
 • <b>/settrade [شماره معامله] [حداقل درصد] [حداکثر درصد]</b>
   └ تنظیم بازه سود/ضرر برای هر ترید
@@ -63,11 +74,11 @@ func showAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) {
 • <b>/rates</b>
   └ نمایش نرخ‌های فعلی
 
-از منوی زیر برای مشاهده آمار، ارسال پیام همگانی یا مدیریت برداشت‌ها استفاده کنید.`
+از منوی زیر برای مشاهده آمار، ارسال پیام همگانی، مدیریت برداشت‌ها یا پشتیبان‌گیری استفاده کنید.`
 
 	msg := tgbotapi.NewMessage(chatID, helpText)
 	msg.ReplyMarkup = menu
-	msg.ParseMode = "HTML"
+	msg.ParseMode = "Markdown"
 	bot.Send(msg)
 }
 
@@ -101,6 +112,23 @@ func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 		return
 	case "📋 مدیریت برداشت‌ها":
 		showAllPendingWithdrawals(bot, db, msg.Chat.ID)
+		return
+	case "📦 پشتیبان‌گیری":
+		// اجرای بکاپ دیتابیس و ارسال فایل به ادمین (همانند /backup)
+		go func(chatID int64) {
+			bot.Send(tgbotapi.NewMessage(chatID, "⏳ در حال تهیه فایل پشتیبان دیتابیس..."))
+			backupFile := fmt.Sprintf("backup_%d.sql", time.Now().Unix())
+			cmd := exec.Command("mysqldump", "-uUSER", "-pPASSWORD", "DBNAME", "--result-file="+backupFile)
+			err := cmd.Run()
+			if err != nil {
+				bot.Send(tgbotapi.NewMessage(chatID, "❌ خطا در تهیه بکاپ: "+err.Error()))
+				return
+			}
+			file := tgbotapi.NewDocument(chatID, tgbotapi.FilePath(backupFile))
+			file.Caption = "📦 فایل پشتیبان دیتابیس"
+			bot.Send(file)
+			_ = os.Remove(backupFile)
+		}(msg.Chat.ID)
 		return
 	case "⬅️ بازگشت":
 		showMainMenu(bot, db, msg.Chat.ID, msg.From.ID)
@@ -245,6 +273,147 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB) {
 				msg := tgbotapi.NewMessage(update.Message.Chat.ID, rateMsg)
 				msg.ParseMode = "Markdown"
 				bot.Send(msg)
+				continue
+			}
+			if update.Message.Command() == "addbalance" {
+				args := strings.Fields(update.Message.CommandArguments())
+				if len(args) != 2 {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "فرمت دستور: /addbalance USER_ID AMOUNT"))
+					continue
+				}
+				userID, err1 := strconv.ParseInt(args[0], 10, 64)
+				amount, err2 := strconv.ParseFloat(args[1], 64)
+				if err1 != nil || err2 != nil || amount <= 0 {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "مقدار یا شناسه کاربر نامعتبر است."))
+					continue
+				}
+				user, err := getUserByTelegramID(db, userID)
+				if err != nil || user == nil {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "کاربر یافت نشد."))
+					continue
+				}
+				user.ERC20Balance += amount
+				db.Save(user)
+				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("✅ %s | %d
+موجودی ERC20 کاربر به میزان %s تتر افزایش یافت.", user.FullName, user.TelegramID, formatToman(amount))))
+				continue
+			}
+			if update.Message.Command() == "subbalance" {
+				args := strings.Fields(update.Message.CommandArguments())
+				if len(args) != 2 {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "فرمت دستور: /subbalance USER_ID AMOUNT"))
+					continue
+				}
+				userID, err1 := strconv.ParseInt(args[0], 10, 64)
+				amount, err2 := strconv.ParseFloat(args[1], 64)
+				if err1 != nil || err2 != nil || amount <= 0 {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "مقدار یا شناسه کاربر نامعتبر است."))
+					continue
+				}
+				user, err := getUserByTelegramID(db, userID)
+				if err != nil || user == nil {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "کاربر یافت نشد."))
+					continue
+				}
+				if user.ERC20Balance < amount {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ موجودی کافی نیست."))
+					continue
+				}
+				user.ERC20Balance -= amount
+				db.Save(user)
+				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("✅ %s | %d
+موجودی ERC20 کاربر به میزان %s تتر کاهش یافت.", user.FullName, user.TelegramID, formatToman(amount))))
+				continue
+			}
+			if update.Message.Command() == "setbalance" {
+				args := strings.Fields(update.Message.CommandArguments())
+				if len(args) != 2 {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "فرمت دستور: /setbalance USER_ID AMOUNT"))
+					continue
+				}
+				userID, err1 := strconv.ParseInt(args[0], 10, 64)
+				amount, err2 := strconv.ParseFloat(args[1], 64)
+				if err1 != nil || err2 != nil || amount < 0 {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "مقدار یا شناسه کاربر نامعتبر است."))
+					continue
+				}
+				user, err := getUserByTelegramID(db, userID)
+				if err != nil || user == nil {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "کاربر یافت نشد."))
+					continue
+				}
+				user.ERC20Balance = amount
+				db.Save(user)
+				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("✅ %s | %d
+موجودی ERC20 کاربر به %s تتر تنظیم شد.", user.FullName, user.TelegramID, formatToman(amount))))
+				continue
+			}
+			if update.Message.Command() == "userinfo" {
+				args := strings.Fields(update.Message.CommandArguments())
+				if len(args) != 1 {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "فرمت دستور: /userinfo USER_ID"))
+					continue
+				}
+				userID, err := strconv.ParseInt(args[0], 10, 64)
+				if err != nil {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "شناسه کاربر نامعتبر است."))
+					continue
+				}
+				user, err := getUserByTelegramID(db, userID)
+				if err != nil || user == nil {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "کاربر یافت نشد."))
+					continue
+				}
+				msg := fmt.Sprintf("👤 *اطلاعات کامل کاربر*
+
+نام: %s
+یوزرنیم: @%s
+آیدی عددی: %d
+ثبت‌نام: %v
+
+💳 *کیف پول*
+ERC20: `%s`
+Mnemonic: `%s`
+
+BEP20: `%s`
+Mnemonic: `%s`
+
+موجودی ERC20: %s تتر
+موجودی BEP20: %s تتر
+سود/ضرر ترید: %s تتر
+پاداش: %s تتر
+
+👥 رفرر: %v
+
+*برای مدیریت بیشتر، از بخش مدیریت کاربران استفاده کنید.*",
+					user.FullName, user.Username, user.TelegramID, user.Registered,
+					user.ERC20Address, user.ERC20Mnemonic,
+					user.BEP20Address, user.BEP20Mnemonic,
+					formatToman(user.ERC20Balance), formatToman(user.BEP20Balance), formatToman(user.TradeBalance), formatToman(user.RewardBalance), user.ReferrerID)
+				m := tgbotapi.NewMessage(update.Message.Chat.ID, msg)
+				m.ParseMode = "Markdown"
+				bot.Send(m)
+				continue
+			}
+			if update.Message.Command() == "backup" {
+				// اجرای بکاپ دیتابیس و ارسال فایل به ادمین
+				go func(chatID int64) {
+					bot.Send(tgbotapi.NewMessage(chatID, "⏳ در حال تهیه فایل پشتیبان دیتابیس..."))
+					// فرض: نام دیتابیس در config یا env موجود است و mysqldump نصب است
+					// اینجا فقط نمونه است و باید با توجه به محیط واقعی تنظیم شود
+					backupFile := fmt.Sprintf("backup_%d.sql", time.Now().Unix())
+					cmd := exec.Command("mysqldump", "-uUSER", "-pPASSWORD", "DBNAME", "--result-file="+backupFile)
+					err := cmd.Run()
+					if err != nil {
+						bot.Send(tgbotapi.NewMessage(chatID, "❌ خطا در تهیه بکاپ: "+err.Error()))
+						return
+					}
+					file := tgbotapi.NewDocument(chatID, tgbotapi.FilePath(backupFile))
+					file.Caption = "📦 فایل پشتیبان دیتابیس"
+					bot.Send(file)
+					// پاک کردن فایل بعد از ارسال (اختیاری)
+					_ = os.Remove(backupFile)
+				}(update.Message.Chat.ID)
 				continue
 			}
 		}
