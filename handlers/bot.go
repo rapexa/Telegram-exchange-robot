@@ -47,9 +47,6 @@ func showAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) {
 		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("📋 مدیریت برداشت‌ها"),
 		),
-		tgbotapi.NewKeyboardButtonRow(
-			tgbotapi.NewKeyboardButton("📦 پشتیبان‌گیری"),
-		),
 	)
 	menu.ResizeKeyboard = true
 	menu.OneTimeKeyboard = false
@@ -106,23 +103,6 @@ func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 		return
 	case "📋 مدیریت برداشت‌ها":
 		showAllPendingWithdrawals(bot, db, msg.Chat.ID)
-		return
-	case "📦 پشتیبان‌گیری":
-		// اجرای بکاپ دیتابیس و ارسال فایل به ادمین (همانند /backup)
-		go func(chatID int64) {
-			bot.Send(tgbotapi.NewMessage(chatID, "⏳ در حال تهیه فایل پشتیبان دیتابیس..."))
-			backupFile := fmt.Sprintf("backup_%d.sql", time.Now().Unix())
-			cmd := exec.Command("mysqldump", "-uUSER", "-pPASSWORD", "DBNAME", "--result-file="+backupFile)
-			err := cmd.Run()
-			if err != nil {
-				bot.Send(tgbotapi.NewMessage(chatID, "❌ خطا در تهیه بکاپ: "+err.Error()))
-				return
-			}
-			file := tgbotapi.NewDocument(chatID, tgbotapi.FilePath(backupFile))
-			file.Caption = "📦 فایل پشتیبان دیتابیس"
-			bot.Send(file)
-			_ = os.Remove(backupFile)
-		}(msg.Chat.ID)
 		return
 	case "⬅️ بازگشت":
 		showMainMenu(bot, db, msg.Chat.ID, msg.From.ID)
