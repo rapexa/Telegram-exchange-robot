@@ -222,7 +222,7 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB) {
 						rate = models.Rate{Asset: asset, Value: value}
 						db.Create(&rate)
 					}
-					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("نرخ <b>%s</b> به <b>%,.0f تومان</b> با موفقیت ثبت شد.\n\n<code>مثال کاربرد: اگر کاربر ۱۰۰ تتر بخواهد، مبلغ معادل: %,.0f تومان خواهد بود.</code>", asset, value, value*100)))
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("نرخ <b>%s</b> به <b>%s تومان</b> با موفقیت ثبت شد.\n\n<code>مثال کاربرد: اگر کاربر ۱۰۰ تتر بخواهد، مبلغ معادل: %s تومان خواهد بود.</code>", asset, formatToman(value), formatToman(value*100))))
 				} else {
 					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "فرمت دستور: /setrate [ارز] [نرخ به تومان] (مثال: /setrate USDT 58500)"))
 				}
@@ -239,7 +239,7 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB) {
 				rateMsg += "<b>ارز</b>      <b>نرخ (تومان)</b>\n"
 				rateMsg += "--------------------------\n"
 				for _, r := range rates {
-					rateMsg += fmt.Sprintf("%-8s %,.0f\n", r.Asset, r.Value)
+					rateMsg += fmt.Sprintf("%-8s %s\n", r.Asset, formatToman(r.Value))
 				}
 				rateMsg += "\n<code>برای تغییر نرخ هر ارز، از دستور /setrate [ارز] [نرخ] استفاده کنید.</code>"
 				msg := tgbotapi.NewMessage(update.Message.Chat.ID, rateMsg)
@@ -1932,4 +1932,22 @@ func min(a, b float64) float64 {
 		return a
 	}
 	return b
+}
+
+// --- مبلغ با جداکننده هزارگان ---
+func formatToman(val float64) string {
+	v := int64(val + 0.5) // گرد کردن
+	s := fmt.Sprintf("%d", v)
+	n := len(s)
+	if n <= 3 {
+		return s
+	}
+	res := ""
+	for i, c := range s {
+		if i > 0 && (n-i)%3 == 0 {
+			res += ","
+		}
+		res += string(c)
+	}
+	return res
 }
