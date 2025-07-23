@@ -54,9 +54,9 @@ func showAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) {
 	menu.ResizeKeyboard = true
 	menu.OneTimeKeyboard = false
 
-	helpText := "🛠️ *پنل مدیریت ربات*\n\n" +
-		"به پنل مدیریت خوش آمدید!\n\n" +
-		"*دستورات سریع:*\n\n" +
+	helpText := "🛠️ *سلام ادمین عزیز!*\n\n" +
+		"به پنل مدیریت خوش اومدی! 😊\n\n" +
+		"*دستورات سریع برای مدیریت:*\n\n" +
 		"• `/addbalance USER_ID AMOUNT` — افزایش موجودی کاربر\n" +
 		"• `/subbalance USER_ID AMOUNT` — کاهش موجودی کاربر\n" +
 		"• `/setbalance USER_ID AMOUNT` — تنظیم موجودی کاربر\n" +
@@ -68,7 +68,7 @@ func showAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) {
 		"  └ تنظیم نرخ به تومان برای ارز مشخص\n\n" +
 		"• `/rates`\n" +
 		"  └ نمایش نرخ‌های فعلی\n\n" +
-		"از منوی زیر برای مشاهده آمار، ارسال پیام همگانی، مدیریت برداشت‌ها یا پشتیبان‌گیری استفاده کنید."
+		"همه چیز آماده‌ست! از منوی زیر هر کاری که نیاز داری رو انجام بده 👇"
 
 	msg := tgbotapi.NewMessage(chatID, helpText)
 	msg.ReplyMarkup = menu
@@ -184,7 +184,7 @@ func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 	}
 
 	// If none matched, show invalid command
-	message := tgbotapi.NewMessage(msg.Chat.ID, "❗️ دستور وارد شده در پنل مدیریت نامعتبر است. لطفاً از منوی زیر استفاده کنید یا راهنمای دستورات را ببینید.")
+	message := tgbotapi.NewMessage(msg.Chat.ID, "🤔 این دستور رو نمی‌شناسم! \n\nاز منوی زیر استفاده کن یا راهنمای دستورات رو ببین 👇")
 	bot.Send(message)
 	return
 }
@@ -264,7 +264,7 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB, cfg *config.Config) {
 					}
 					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("نرخ *%s* به *%s تومان* با موفقیت ثبت شد.\n\nمثال کاربرد: اگر کاربر ۱۰۰ تتر بخواهد، مبلغ معادل: *%s تومان* خواهد بود.", asset, formatToman(value), formatToman(value*100))))
 				} else {
-					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "فرمت دستور: /setrate [ارز] [نرخ به تومان] (مثال: /setrate USDT 58500)"))
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "😅 *فرمت درستش اینطوریه:* \n`/setrate [ارز] [نرخ به تومان]` \n\n*مثال:* `/setrate USDT 58500`"))
 				}
 				continue
 			}
@@ -272,7 +272,7 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB, cfg *config.Config) {
 				var rates []models.Rate
 				db.Find(&rates)
 				if len(rates) == 0 {
-					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "هیچ نرخی ثبت نشده است."))
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "😔 هنوز هیچ نرخی ثبت نشده! \n\nبرای ثبت نرخ اول از دستور `/setrate` استفاده کن 👆"))
 					continue
 				}
 				rateMsg := "💱 *نرخ‌های فعلی ارزها*\n\n"
@@ -281,7 +281,7 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB, cfg *config.Config) {
 				for _, r := range rates {
 					rateMsg += fmt.Sprintf("%-8s %s\n", r.Asset, formatToman(r.Value))
 				}
-				rateMsg += "\nبرای تغییر نرخ هر ارز، از دستور /setrate [ارز] [نرخ] استفاده کنید."
+				rateMsg += "\n✏️ برای تغییر نرخ هر ارز، از دستور `/setrate [ارز] [نرخ]` استفاده کن."
 				msg := tgbotapi.NewMessage(update.Message.Chat.ID, rateMsg)
 				msg.ParseMode = "Markdown"
 				bot.Send(msg)
@@ -290,87 +290,87 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB, cfg *config.Config) {
 			if update.Message.Command() == "addbalance" {
 				args := strings.Fields(update.Message.CommandArguments())
 				if len(args) != 2 {
-					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "فرمت دستور: /addbalance USER_ID AMOUNT"))
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "😅 *فرمت درستش اینطوریه:* \n`/addbalance USER_ID AMOUNT`"))
 					continue
 				}
 				userID, err1 := strconv.ParseInt(args[0], 10, 64)
 				amount, err2 := strconv.ParseFloat(args[1], 64)
 				if err1 != nil || err2 != nil || amount <= 0 {
-					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "مقدار یا شناسه کاربر نامعتبر است."))
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "🤔 مقدار یا شناسه کاربر درست نیست. یه چک کن!"))
 					continue
 				}
 				user, err := getUserByTelegramID(db, userID)
 				if err != nil || user == nil {
-					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "کاربر یافت نشد."))
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "😔 این کاربر رو پیدا نکردم!"))
 					continue
 				}
 				user.ERC20Balance += amount
 				db.Save(user)
-				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("✅ %s | %d\nموجودی ERC20 کاربر به میزان %s تتر افزایش یافت.", user.FullName, user.TelegramID, formatToman(amount))))
+				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("✅ *انجام شد!* \n\n🎉 موجودی ERC20 کاربر *%s* (آیدی: `%d`) به میزان *%s* تتر افزایش یافت.", user.FullName, user.TelegramID, formatToman(amount))))
 				continue
 			}
 			if update.Message.Command() == "subbalance" {
 				args := strings.Fields(update.Message.CommandArguments())
 				if len(args) != 2 {
-					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "فرمت دستور: /subbalance USER_ID AMOUNT"))
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "😅 *فرمت درستش اینطوریه:* \n`/subbalance USER_ID AMOUNT`"))
 					continue
 				}
 				userID, err1 := strconv.ParseInt(args[0], 10, 64)
 				amount, err2 := strconv.ParseFloat(args[1], 64)
 				if err1 != nil || err2 != nil || amount <= 0 {
-					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "مقدار یا شناسه کاربر نامعتبر است."))
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "🤔 مقدار یا شناسه کاربر درست نیست. یه چک کن!"))
 					continue
 				}
 				user, err := getUserByTelegramID(db, userID)
 				if err != nil || user == nil {
-					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "کاربر یافت نشد."))
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "😔 این کاربر رو پیدا نکردم!"))
 					continue
 				}
 				if user.ERC20Balance < amount {
-					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ موجودی کافی نیست."))
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "😬  موجودی کافی نیست."))
 					continue
 				}
 				user.ERC20Balance -= amount
 				db.Save(user)
-				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("✅ %s | %d\nموجودی ERC20 کاربر به میزان %s تتر کاهش یافت.", user.FullName, user.TelegramID, formatToman(amount))))
+				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("✅ *انجام شد!* \n\n📉 موجودی ERC20 کاربر *%s* (آیدی: `%d`) به میزان *%s* تتر کاهش یافت.", user.FullName, user.TelegramID, formatToman(amount))))
 				continue
 			}
 			if update.Message.Command() == "setbalance" {
 				args := strings.Fields(update.Message.CommandArguments())
 				if len(args) != 2 {
-					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "فرمت دستور: /setbalance USER_ID AMOUNT"))
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "😅 *فرمت درستش اینطوریه:* \n`/setbalance USER_ID AMOUNT`"))
 					continue
 				}
 				userID, err1 := strconv.ParseInt(args[0], 10, 64)
 				amount, err2 := strconv.ParseFloat(args[1], 64)
 				if err1 != nil || err2 != nil || amount < 0 {
-					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "مقدار یا شناسه کاربر نامعتبر است."))
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "🤔 مقدار یا شناسه کاربر درست نیست. یه چک کن!"))
 					continue
 				}
 				user, err := getUserByTelegramID(db, userID)
 				if err != nil || user == nil {
-					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "کاربر یافت نشد."))
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "😔 این کاربر رو پیدا نکردم!"))
 					continue
 				}
 				user.ERC20Balance = amount
 				db.Save(user)
-				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("✅ %s | %d\nموجودی ERC20 کاربر به %s تتر تنظیم شد.", user.FullName, user.TelegramID, formatToman(amount))))
+				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("✅ *تمام!* \n\n🎯 موجودی ERC20 کاربر *%s* (آیدی: `%d`) روی *%s* تتر تنظیم شد.", user.FullName, user.TelegramID, formatToman(amount))))
 				continue
 			}
 			if update.Message.Command() == "userinfo" {
 				args := strings.Fields(update.Message.CommandArguments())
 				if len(args) != 1 {
-					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "فرمت دستور: /userinfo USER_ID"))
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "😅 *فرمت درستش اینطوریه:* \n`/userinfo USER_ID`"))
 					continue
 				}
 				userID, err := strconv.ParseInt(args[0], 10, 64)
 				if err != nil {
-					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "شناسه کاربر نامعتبر است."))
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "🤔 شناسه کاربر درست نیست. یه چک کن!"))
 					continue
 				}
 				user, err := getUserByTelegramID(db, userID)
 				if err != nil || user == nil {
-					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "کاربر یافت نشد."))
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "😔 این کاربر رو پیدا نکردم!"))
 					continue
 				}
 				msg := fmt.Sprintf(`👤 *اطلاعات کامل کاربر*
@@ -394,7 +394,7 @@ Mnemonic: %s
 
 👥 رفرر: %v
 
-*برای مدیریت بیشتر، از بخش مدیریت کاربران استفاده کنید.*`,
+*برای مدیریت بیشتر، از بخش مدیریت کاربران استفاده کن.*`,
 					user.FullName, user.Username, user.TelegramID, user.Registered,
 					user.ERC20Address, user.ERC20Mnemonic,
 					user.BEP20Address, user.BEP20Mnemonic,
@@ -407,7 +407,7 @@ Mnemonic: %s
 			if update.Message.Command() == "backup" {
 				// اجرای بکاپ دیتابیس و ارسال فایل به ادمین
 				go func(chatID int64) {
-					bot.Send(tgbotapi.NewMessage(chatID, "⏳ در حال تهیه فایل پشتیبان دیتابیس..."))
+					bot.Send(tgbotapi.NewMessage(chatID, "⏳ صبر کن، دارم فایل بکاپ رو آماده می‌کنم..."))
 					user := cfg.MySQL.User
 					pass := cfg.MySQL.Password
 					dbName := cfg.MySQL.DBName
@@ -415,11 +415,11 @@ Mnemonic: %s
 					cmd := exec.Command("mysqldump", "-u"+user, "-p"+pass, dbName, "--result-file="+backupFile)
 					err := cmd.Run()
 					if err != nil {
-						bot.Send(tgbotapi.NewMessage(chatID, "❌ خطا در تهیه بکاپ: "+err.Error()))
+						bot.Send(tgbotapi.NewMessage(chatID, "😞 متاسفانه مشکلی پیش اومد: "+err.Error()))
 						return
 					}
 					file := tgbotapi.NewDocument(chatID, tgbotapi.FilePath(backupFile))
-					file.Caption = "📦 فایل پشتیبان دیتابیس"
+					file.Caption = "📦 فایل بکاپ آماده!"
 					bot.Send(file)
 					// پاک کردن فایل بعد از ارسال (اختیاری)
 					_ = os.Remove(backupFile)
@@ -784,16 +784,16 @@ Mnemonic: %s
 			logInfo("User %d not fully registered, redirecting to registration", userID)
 
 			// Send a message explaining why they can't access menus
-			redirectMsg := `🔒 *دسترسی محدود*
+			redirectMsg := `😊 *یه قدم مونده تا آماده بشی!*
 
-⚠️ برای استفاده از خدمات ربات، ابتدا باید ثبت‌نام خود را تکمیل کنید.
+🚀 برای استفاده از همه امکانات فوق‌العاده ربات، فقط باید ثبت‌نامت رو تکمیل کنی.
 
-📝 *مراحل ثبت‌نام:*
+✨ *چیزای ساده که باقی مونده:*
 1️⃣ نام و نام خانوادگی
 2️⃣ شماره شبا
 3️⃣ شماره کارت
 
-🔄 در حال انتقال به صفحه ثبت‌نام...`
+🎯 الان میبرمت به بخش ثبت‌نام...`
 
 			message := tgbotapi.NewMessage(update.Message.Chat.ID, redirectMsg)
 			message.ParseMode = "Markdown"
@@ -922,18 +922,18 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 	if state == "full_name" {
 		// Validate Persian full name format
 		if !models.ValidatePersianFullName(msg.Text) {
-			errorMsg := `❌ <b>خطا در فرمت نام</b>
+			errorMsg := `😅 <b> یه مشکل کوچیک داریم</b>
 
-فرمت نام صحیح نیست. لطفاً نام و نام خانوادگی را به فارسی وارد کنید.
+نام رو کمی متفاوت وارد کن !
 
-📝 <b>مثال صحیح:</b> علی احمدی
+📝 <b>مثال درست:</b> علی احمدی
 
-💡 <b>نکات مهم:</b>
-• نام و نام خانوادگی باید به فارسی باشد
-• حداقل دو کلمه (نام و نام خانوادگی) الزامی است
-• هر کلمه حداقل ۲ حرف باشد
+💡 <b>نکته‌های مهم:</b>
+• نام و نام خانوادگی به فارسی باشه 
+• حداقل دو تا کلمه بنویس (نام و فامیل)
+• هر کلمه حداقل ۲ حرف داشته باشه
 
-🔄 لطفاً دوباره تلاش کنید.`
+🔄 حالا دوباره امتحان کن! مطمئنم این بار درست میشه 😊`
 
 			message := tgbotapi.NewMessage(msg.Chat.ID, errorMsg)
 			message.ParseMode = "HTML"
@@ -969,18 +969,18 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 		if !models.ValidateSheba(msg.Text) {
 			logError("Sheba validation failed for: '%s'", msg.Text)
 
-			errorMsg := `❌ <b>خطا در فرمت شماره شبا</b>
+			errorMsg := `😊 <b>شماره شبا کمی اشتباه شده!</b>
 
-فرمت شماره شبا صحیح نیست. لطفاً شماره شبا را به فرمت صحیح وارد کنید.
+نگران نباش، همه جا پیش میاد!
 
-🏦 <b>مثال صحیح:</b> IR520630144905901219088011
+🏦 <b>مثال درست:</b> IR520630144905901219088011
 
-💡 <b>نکات مهم:</b>
-• شماره شبا باید با IR شروع شود
-• شامل ۲۴ رقم بعد از IR باشد
-• بدون فاصله یا کاراکتر اضافی
+💡 <b>نکته‌های مهم:</b>
+• حتماً با IR شروع کن
+• بعدش ۲۴ تا رقم بذار
+• هیچ فاصله یا خط تیره نذار
 
-🔄 لطفاً دوباره تلاش کنید.`
+🔄 یه بار دیگه امتحان کن! 😉`
 
 			message := tgbotapi.NewMessage(msg.Chat.ID, errorMsg)
 			message.ParseMode = "HTML"
@@ -1013,18 +1013,18 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 	} else if state == "card_number" {
 		// Validate card number format
 		if !models.ValidateCardNumber(msg.Text) {
-			errorMsg := `❌ <b>خطا در فرمت شماره کارت</b>
+			errorMsg := `💳 <b>شماره کارت کمی اشتباهه!</b>
 
-فرمت شماره کارت صحیح نیست. لطفاً شماره کارت را به فرمت صحیح وارد کنید.
+بیا دوباره درستش کنیم!
 
-💳 <b>مثال صحیح:</b> 6037998215325563
+💳 <b>مثال درست:</b> 6037998215325563
 
-💡 <b>نکات مهم:</b>
-• شماره کارت باید ۱۶ رقم باشد
-• بدون فاصله یا کاراکتر اضافی
-• فقط اعداد مجاز هستند
+💡 <b>نکته‌های مهم:</b>
+• حتماً ۱۶ تا رقم باشه
+• هیچ فاصله یا خط تیره نذار
+• فقط عدد بنویس
 
-🔄 لطفاً دوباره تلاش کنید.`
+🔄 الان دوباره تست کن! 🙂`
 
 			message := tgbotapi.NewMessage(msg.Chat.ID, errorMsg)
 			message.ParseMode = "HTML"
@@ -1043,9 +1043,13 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 		err := registerUser(db, userID, info["full_name"], info["sheba"], info["card_number"])
 		if err != nil {
 			logError("Error registering user: %v", err)
-			errorMsg := `❌ <b>خطا در ثبت اطلاعات</b>
+			errorMsg := `😔 <b> یه مشکل فنی پیش اومد</b>
 
-متاسفانه مشکلی پیش اومد. لطفاً دوباره تلاش کن یا با پشتیبانی تماس بگیر.`
+نگران نباش، گاهی اینطوری میشه! لطفاً:
+• یه بار دیگه امتحان کن
+• اگه بازم نشد، با پشتیبانی چت کن
+
+به زودی حلش می‌کنیم! 💪`
 
 			message := tgbotapi.NewMessage(msg.Chat.ID, errorMsg)
 			message.ParseMode = "Markdown"
@@ -1094,51 +1098,104 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 			showMainMenu(bot, db, msg.Chat.ID, userID)
 			return true
 		}
-		// فقط اگر پیام عددی بود ادامه بده
-		amount, err := strconv.ParseFloat(msg.Text, 64)
-		if err != nil || amount <= 0 {
-			// اگر پیام غیرعددی بود، کاربر را به منوی اصلی برگردان و state را پاک کن
-			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ مبلغ نامعتبر است. لطفاً فقط عدد وارد کنید."))
+
+		// Parse Iranian amount (مبلغ تومانی)
+		tomanAmount, err := strconv.ParseFloat(msg.Text, 64)
+		if err != nil || tomanAmount <= 0 {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "😅  مبلغ رو درست وارد نکردی. \n\nفقط عدد بنویس، مثل: 1000000"))
+			return true
+		}
+
+		// Get current USDT rate
+		usdtRate, err := getUSDTRate(db)
+		if err != nil {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ نرخ تتر تنظیم نشده است. لطفاً با ادمین تماس بگیرید."))
 			clearRegState(userID)
-			showMainMenu(bot, db, msg.Chat.ID, userID)
 			return true
 		}
+
+		// Convert toman to USDT
+		usdtAmount := tomanAmount / usdtRate
+
 		user, _ := getUserByTelegramID(db, userID)
-		// Calculate confirmed balance
-		var depositSum, withdrawSum float64
-		db.Model(&models.Transaction{}).Where("user_id = ? AND type = ? AND status = ?", user.ID, "deposit", "confirmed").Select("COALESCE(SUM(amount),0)").Scan(&depositSum)
-		db.Model(&models.Transaction{}).Where("user_id = ? AND type = ? AND status = ?", user.ID, "withdraw", "confirmed").Select("COALESCE(SUM(amount),0)").Scan(&withdrawSum)
-		balance := depositSum - withdrawSum
-		if user == nil || balance < amount {
-			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ موجودی کافی نیست."))
+		if user == nil {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ کاربر یافت نشد."))
+			clearRegState(userID)
 			return true
 		}
-		// Create pending transaction
+
+		// Calculate total USDT balance (including all sources)
+		totalUSDTBalance := user.ERC20Balance + user.BEP20Balance + user.TradeBalance + user.RewardBalance
+
+		if totalUSDTBalance < usdtAmount {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, fmt.Sprintf(`😔 <b>موجودی کمه !</b>
+
+💰 <b>موجودی فعلی:</b> %.4f USDT (معادل %s تومان)
+💸 <b>مقدار درخواستی:</b> %.4f USDT (معادل %s تومان)
+📉 <b>کسری:</b> %.4f USDT (معادل %s تومان)
+
+😊 یه مقدار کمتر انتخاب کن، یا اول موجودی رو شارژ کن!`,
+				totalUSDTBalance, formatToman(totalUSDTBalance*usdtRate),
+				usdtAmount, formatToman(tomanAmount),
+				usdtAmount-totalUSDTBalance, formatToman((usdtAmount-totalUSDTBalance)*usdtRate))))
+			return true
+		}
+
+		// Create pending transaction (store as USDT for internal consistency)
 		tx := models.Transaction{
 			UserID: user.ID,
 			Type:   "withdraw",
-			Amount: amount,
+			Amount: usdtAmount, // Store in USDT
 			Status: "pending",
 		}
 		db.Create(&tx)
-		// Notify admin
-		adminMsg := fmt.Sprintf(`💸 <b>درخواست برداشت جدید</b>
 
-		👤 <b>کاربر:</b> %s (آیدی: <code>%d</code>)
-		💵 <b>مبلغ:</b> <b>%.2f USDT</b>
-		
-		برای تایید یا رد این برداشت، یکی از دکمه‌های زیر را انتخاب کنید.`, user.FullName, user.TelegramID, amount)
+		// Notify admin with both Toman and USDT amounts
+		adminMsg := fmt.Sprintf(`💸 <b>درخواست برداشت تومانی جدید</b>
+
+👤 <b>کاربر:</b> %s (آیدی: <code>%d</code>)
+💵 <b>مبلغ تومانی:</b> <b>%s تومان</b>
+💰 <b>معادل USDT:</b> <b>%.4f USDT</b>
+📊 <b>نرخ:</b> %s تومان
+
+📋 <b>موجودی کاربر:</b>
+• 🔵 ERC20: %.4f USDT
+• 🟡 BEP20: %.4f USDT  
+• 📈 ترید: %.4f USDT
+• 🎁 پاداش: %.4f USDT
+• 💎 مجموع: %.4f USDT
+
+برای پرداخت <b>%s تومان</b> به کاربر، یکی از دکمه‌های زیر را انتخاب کنید.`,
+			user.FullName, user.TelegramID,
+			formatToman(tomanAmount), usdtAmount, formatToman(usdtRate),
+			user.ERC20Balance, user.BEP20Balance, user.TradeBalance, user.RewardBalance, totalUSDTBalance,
+			formatToman(tomanAmount))
 
 		adminBtns := tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("پرداخت شد", fmt.Sprintf("approve_withdraw_%d", tx.ID)),
-				tgbotapi.NewInlineKeyboardButtonData("رد شد", fmt.Sprintf("reject_withdraw_%d", tx.ID)),
+				tgbotapi.NewInlineKeyboardButtonData("💰 پرداخت شد", fmt.Sprintf("approve_withdraw_%d", tx.ID)),
+				tgbotapi.NewInlineKeyboardButtonData("❌ رد شد", fmt.Sprintf("reject_withdraw_%d", tx.ID)),
 			),
 		)
 		msgToAdmin := tgbotapi.NewMessage(adminUserID, adminMsg)
+		msgToAdmin.ParseMode = "HTML"
 		msgToAdmin.ReplyMarkup = adminBtns
 		bot.Send(msgToAdmin)
-		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "✅ درخواست برداشت ثبت شد و در انتظار تایید ادمین است."))
+
+		// Confirm to user
+		confirmMsg := fmt.Sprintf(`✅ <b>درخواست برداشت ثبت شد</b>
+
+💵 <b>مبلغ:</b> %s تومان
+💰 <b>معادل:</b> %.4f USDT
+📊 <b>نرخ:</b> %s تومان
+
+⏳ درخواست شما در انتظار تایید ادمین است.`,
+			formatToman(tomanAmount), usdtAmount, formatToman(usdtRate))
+
+		confirmMsgToUser := tgbotapi.NewMessage(msg.Chat.ID, confirmMsg)
+		confirmMsgToUser.ParseMode = "HTML"
+		bot.Send(confirmMsgToUser)
+
 		clearRegState(userID)
 		return true
 	}
@@ -1262,16 +1319,16 @@ func handleMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 		logInfo("User %d not fully registered in main menu, redirecting to registration", userID)
 
 		// Send a message explaining why they can't access menus
-		redirectMsg := `🔒 *دسترسی محدود*
+		redirectMsg := `😊 *یه قدم مونده تا آماده بشی!*
 
-⚠️ برای استفاده از خدمات ربات، ابتدا باید ثبت‌نام خود را تکمیل کنید.
+🚀 برای استفاده از همه امکانات فوق‌العاده ربات، فقط باید ثبت‌نامت رو تکمیل کنی.
 
-📝 *مراحل ثبت‌نام:*
+✨ *چیزای ساده که باقی مونده:*
 1️⃣ نام و نام خانوادگی
 2️⃣ شماره شبا
 3️⃣ شماره کارت
 
-🔄 در حال انتقال به صفحه ثبت‌نام...`
+🎯 الان میبرمت به بخش ثبت‌نام...`
 
 		message := tgbotapi.NewMessage(msg.Chat.ID, redirectMsg)
 		message.ParseMode = "Markdown"
@@ -1289,7 +1346,7 @@ func handleMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 	case "📊 آمار":
 		showStatsMenu(bot, db, msg.Chat.ID, userID)
 	case "🆘 پشتیبانی و آموزش":
-		msg := tgbotapi.NewMessage(msg.Chat.ID, "💬 <b>پشتیبانی و آموزش</b>\n\nبرای ارتباط با پشتیبانی، سوالات یا مشکلات خود را به آیدی زیر ارسال کنید:\n👉 <a href='https://t.me/YourAdminUsername'>@YourAdminUsername</a>\n\n📢 همچنین برای آموزش‌ها و اطلاع‌رسانی‌های مهم، حتماً عضو کانال زیر باشید:\n👉 <a href='https://t.me/YourChannelUsername'>کانال آموزش و اطلاع‌رسانی</a>\n\nاز همراهی شما سپاسگزاریم!")
+		msg := tgbotapi.NewMessage(msg.Chat.ID, "💫 <b>کمک و راهنمایی</b>\n\n😊 سوال یا مشکلی داری؟ اینجاییم تا کمکت کنیم!\n\n💬 <b>پشتیبانی آنلاین:</b>\n👨‍💻 برای چت با تیم پشتیبانی به آیدی زیر پیام بده:\n👉 @SupportUsername\n\n📚 <b>آموزش و اطلاع‌رسانی:</b>\n🔔 برای اطلاع از آخرین اخبار و آموزش‌ها عضو کانال ما شو:\n👉 @ChannelUsername\n\n🤝 همیشه خوشحالیم که در کنارتیم!")
 		msg.ParseMode = "HTML"
 		bot.Send(msg)
 	case "🔗 لینک رفرال":
@@ -1345,13 +1402,30 @@ func handleSubmenuActions(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Messa
 
 	switch msg.Text {
 	case "💵 برداشت":
+		// Get current USDT rate
+		usdtRate, err := getUSDTRate(db)
+		if err != nil {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "😔 متاسفانه نرخ تتر هنوز تنظیم نشده! \n\nلطفاً با پشتیبانی چت کن تا حلش کنیم 💪"))
+			return
+		}
+
 		setRegState(userID, "withdraw_amount")
 		cancelKeyboard := tgbotapi.NewReplyKeyboard(
 			tgbotapi.NewKeyboardButtonRow(
 				tgbotapi.NewKeyboardButton("لغو برداشت"),
 			),
 		)
-		msgSend := tgbotapi.NewMessage(msg.Chat.ID, "💵 لطفاً مبلغ برداشت را به عدد وارد کنید (USDT):")
+
+		withdrawMsg := fmt.Sprintf(`💰 <b>برداشت تومانی</b>
+
+🎯 <b>نرخ امروز USDT:</b> %s تومان
+
+😊 چه مقدار می‌خوای برداشت کنی؟ مبلغ رو به <b>تومان</b> بنویس:
+
+💡 <i>مثال: 1000000 (یک میلیون تومان)</i>`, formatToman(usdtRate))
+
+		msgSend := tgbotapi.NewMessage(msg.Chat.ID, withdrawMsg)
+		msgSend.ParseMode = "HTML"
 		msgSend.ReplyMarkup = cancelKeyboard
 		bot.Send(msgSend)
 		return
@@ -1394,7 +1468,7 @@ func showMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64)
 	// Get user to display summary
 	user, err := getUserByTelegramID(db, userID)
 	if err != nil || user == nil {
-		bot.Send(tgbotapi.NewMessage(chatID, "کاربر یافت نشد. لطفاً ابتدا ثبت‌نام کنید."))
+		bot.Send(tgbotapi.NewMessage(chatID, "😔  یه مشکلی پیش اومد. \n\nاول ثبت‌نام کن، بعد برگرد! 😊"))
 		return
 	}
 
@@ -1457,7 +1531,7 @@ func showWalletMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int6
 	// Get user to calculate balances
 	user, err := getUserByTelegramID(db, userID)
 	if err != nil || user == nil {
-		bot.Send(tgbotapi.NewMessage(chatID, "کاربر یافت نشد. لطفاً ابتدا ثبت‌نام کنید."))
+		bot.Send(tgbotapi.NewMessage(chatID, "😔  یه مشکلی پیش اومد. \n\nاول ثبت‌نام کن، بعد برگرد! 😊"))
 		return
 	}
 
@@ -1486,18 +1560,56 @@ func showWalletMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int6
 	menu.ResizeKeyboard = true
 	menu.OneTimeKeyboard = false
 
-	// Create balance display message
-	balanceMsg := fmt.Sprintf(`💰 <b>کیف پول شما</b>
+	// Get USDT rate for display
+	usdtRate, err := getUSDTRate(db)
+	var balanceMsg string
 
-💎 <b>موجودی کل:</b> <b>%.2f USDT</b>
+	if err == nil {
+		totalToman := totalBalance * usdtRate
+		blockchainToman := blockchainBalance * usdtRate
+		rewardToman := rewardBalance * usdtRate
+		tradeToman := tradeBalance * usdtRate
+		erc20Toman := erc20Balance * usdtRate
+		bep20Toman := bep20Balance * usdtRate
+
+		// Create balance display message with Toman
+		balanceMsg = fmt.Sprintf(`💰 <b>کیف پول شما</b>
+
+💎 <b>موجودی کل:</b> 
+• <b>%.4f USDT</b>
+• <b>%s تومان</b>
 
 📊 <b>جزئیات:</b>
-• بلاکچین: %.2f USDT
-• پاداش: %.2f USDT
-• 🔵 ERC20 (اتریوم): %.2f USDT
-• 🟡 BEP20 (بایننس): %.2f USDT
+• بلاکچین: %.4f USDT (%s تومان)
+• پاداش: %.4f USDT (%s تومان)
+• ترید: %.4f USDT (%s تومان)
+• 🔵 ERC20: %.4f USDT (%s تومان)
+• 🟡 BEP20: %.4f USDT (%s تومان)
 
-💡 از منوی زیر برای برداشت، واریز یا مشاهده تاریخچه استفاده کن.`, totalBalance, blockchainBalance, rewardBalance, erc20Balance, bep20Balance)
+💡 از منوی زیر برای برداشت، واریز یا مشاهده تاریخچه استفاده کن.`,
+			totalBalance, formatToman(totalToman),
+			blockchainBalance, formatToman(blockchainToman),
+			rewardBalance, formatToman(rewardToman),
+			tradeBalance, formatToman(tradeToman),
+			erc20Balance, formatToman(erc20Toman),
+			bep20Balance, formatToman(bep20Toman))
+	} else {
+		// Fallback without Toman rates
+		balanceMsg = fmt.Sprintf(`💰 <b>کیف پول شما</b>
+
+💎 <b>موجودی کل:</b> <b>%.4f USDT</b>
+⚠️ <i>نرخ تنظیم نشده - با ادمین تماس بگیرید</i>
+
+📊 <b>جزئیات:</b>
+• بلاکچین: %.4f USDT
+• پاداش: %.4f USDT
+• ترید: %.4f USDT
+• 🔵 ERC20 (اتریوم): %.4f USDT
+• 🟡 BEP20 (بایننس): %.4f USDT
+
+💡 از منوی زیر برای برداشت، واریز یا مشاهده تاریخچه استفاده کن.`,
+			totalBalance, blockchainBalance, rewardBalance, tradeBalance, erc20Balance, bep20Balance)
+	}
 
 	msg := tgbotapi.NewMessage(chatID, balanceMsg)
 	msg.ReplyMarkup = menu
@@ -1513,7 +1625,7 @@ func showRewardsMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int
 	// Get user to display reward balance
 	user, err := getUserByTelegramID(db, userID)
 	if err != nil || user == nil {
-		bot.Send(tgbotapi.NewMessage(chatID, "کاربر یافت نشد. لطفاً ابتدا ثبت‌نام کنید."))
+		bot.Send(tgbotapi.NewMessage(chatID, "😔  یه مشکلی پیش اومد. \n\nاول ثبت‌نام کن، بعد برگرد! 😊"))
 		return
 	}
 
@@ -1561,7 +1673,7 @@ func showStatsMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64
 	// Get user to display comprehensive stats
 	user, err := getUserByTelegramID(db, userID)
 	if err != nil || user == nil {
-		bot.Send(tgbotapi.NewMessage(chatID, "کاربر یافت نشد. لطفاً ابتدا ثبت‌نام کنید."))
+		bot.Send(tgbotapi.NewMessage(chatID, "😔  یه مشکلی پیش اومد. \n\nاول ثبت‌نام کن، بعد برگرد! 😊"))
 		return
 	}
 
@@ -1716,12 +1828,12 @@ func handleFixUser(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 	user, err := getUserByTelegramID(db, userID)
 
 	if err != nil || user == nil {
-		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "کاربر یافت نشد. لطفاً ابتدا /start را بزنید."))
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "😔 اول باید با /start شروع کنی! \n\nروی /start بزن تا ثبت‌نامت کنیم 😊"))
 		return
 	}
 
 	if user.Registered && user.FullName != "" && user.Sheba != "" && user.CardNumber != "" {
-		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "کاربر شما قبلاً ثبت‌نام شده است."))
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "🎉 عالی! تو قبلاً ثبت‌نام کردی و همه چیز کامله! \n\nمی‌تونی از همه امکانات استفاده کنی 💪"))
 		return
 	}
 
@@ -1730,7 +1842,7 @@ func handleFixUser(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 	regTemp.Lock()
 	regTemp.m[userID] = make(map[string]string)
 	regTemp.Unlock()
-	bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "لطفاً نام و نام خانوادگی خود را وارد کنید:"))
+	bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "😊 بیا ثبت‌نامت رو تکمیل کنیم! \n\nاول نام و نام خانوادگیت رو بنویس:"))
 }
 
 // Handler for 'لینک رفرال'
@@ -1821,7 +1933,7 @@ func handleWalletDeposit(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Messag
 		}
 		db.Save(user)
 		if user.ERC20Address == "" || user.BEP20Address == "" {
-			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "آدرس کیف پول شما ساخته نشد. لطفاً با پشتیبانی تماس بگیرید."))
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "😔 متاسفانه مشکل فنی در ساخت کیف پول! \n\nلطفاً با پشتیبانی چت کن تا سریع حلش کنیم 🛠️"))
 			return
 		}
 	}
@@ -1840,10 +1952,10 @@ func handleWalletDeposit(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Messag
 🟡 *BEP20 (بایننس اسمارت چین):*
 `+"`%s`"+`
 
-⚠️ *هشدار مهم:*
-• فقط USDT را به شبکه صحیح واریز کنید
-• ارسال اشتباه باعث از دست رفتن دارایی می‌شود
-• حداقل واریز: 10 USDT`,
+⚠️ *نکات مهم:*
+• حتماً USDT رو به شبکه درست بفرست
+• اگه اشتباه بفرستی، پولت گم میشه 💔
+• حداقل واریز: 10 تتر`,
 		erc20Balance, bep20Balance, user.ERC20Address, user.BEP20Address)
 
 	message := tgbotapi.NewMessage(msg.Chat.ID, msgText)
@@ -1863,7 +1975,7 @@ func showReferralList(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) 
 	db.Where("referrer_id = ?", user.ID).Order("created_at desc").Find(&referrals)
 
 	if len(referrals) == 0 {
-		emptyMsg := tgbotapi.NewMessage(msg.Chat.ID, "👥 <b>لیست زیرمجموعه‌ها</b>\n\nشما هنوز هیچ زیرمجموعه‌ای ندارید.\n\n💡 برای جذب زیرمجموعه، لینک رفرال خود را به اشتراک بگذارید.")
+		emptyMsg := tgbotapi.NewMessage(msg.Chat.ID, "👥 <b>لیست زیرمجموعه‌ها</b>\n\n😊 هنوز کسی با لینک تو عضو نشده!\n\n🚀 برای معرفی دوستات، لینک رفرالت رو باهاشون به اشتراک بذار و پاداش بگیر! 💰")
 		emptyMsg.ParseMode = "HTML"
 		bot.Send(emptyMsg)
 		return
@@ -1926,7 +2038,7 @@ func showTransactionHistory(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Mes
 	db.Where("user_id = ?", user.ID).Order("created_at desc").Limit(10).Find(&txs)
 
 	if len(txs) == 0 {
-		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "📋 *تاریخچه تراکنش‌ها*\n\nهیچ تراکنشی ثبت نشده است.\n\n💡 برای مشاهده تراکنش‌ها، ابتدا باید واریز یا برداشتی انجام دهید."))
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "📋 *تاریخچه تراکنش‌ها*\n\n😊 هنوز هیچ تراکنشی نداری!\n\n🚀 اولین واریز یا برداشتت رو انجام بده تا اینجا نمایش داده بشه."))
 		return
 	}
 
@@ -2375,6 +2487,15 @@ func min(a, b float64) float64 {
 		return a
 	}
 	return b
+}
+
+// --- نرخ USDT ---
+func getUSDTRate(db *gorm.DB) (float64, error) {
+	var rate models.Rate
+	if err := db.Where("asset = ?", "USDT").First(&rate).Error; err != nil {
+		return 0, err
+	}
+	return rate.Value, nil
 }
 
 // --- مبلغ با جداکننده هزارگان ---
