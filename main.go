@@ -150,5 +150,5 @@ func main() {
 		}
 	}()
 
-	handlers.StartBot(bot, db)
+	handlers.StartBot(bot, db, cfg)
 }

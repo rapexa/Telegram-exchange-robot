@@ -14,6 +14,7 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"gorm.io/gorm"
 
+	"telegram-exchange-robot/config"
 	"telegram-exchange-robot/models"
 )
 
@@ -191,7 +192,7 @@ func logDebug(format string, v ...interface{}) {
 	log.Printf("[DEBUG] "+format, v...)
 }
 
-func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB) {
+func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB, cfg *config.Config) {
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
 	updates := bot.GetUpdatesChan(u)
@@ -389,10 +390,11 @@ Mnemonic: %s
 				// اجرای بکاپ دیتابیس و ارسال فایل به ادمین
 				go func(chatID int64) {
 					bot.Send(tgbotapi.NewMessage(chatID, "⏳ در حال تهیه فایل پشتیبان دیتابیس..."))
-					// فرض: نام دیتابیس در config یا env موجود است و mysqldump نصب است
-					// اینجا فقط نمونه است و باید با توجه به محیط واقعی تنظیم شود
+					user := cfg.MySQL.User
+					pass := cfg.MySQL.Password
+					dbName := cfg.MySQL.DBName
 					backupFile := fmt.Sprintf("backup_%d.sql", time.Now().Unix())
-					cmd := exec.Command("mysqldump", "-uUSER", "-pPASSWORD", "DBNAME", "--result-file="+backupFile)
+					cmd := exec.Command("mysqldump", "-u"+user, "-p"+pass, dbName, "--result-file="+backupFile)
 					err := cmd.Run()
 					if err != nil {
 						bot.Send(tgbotapi.NewMessage(chatID, "❌ خطا در تهیه بکاپ: "+err.Error()))
