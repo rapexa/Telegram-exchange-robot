@@ -1477,7 +1477,10 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 
 func handleStart(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 	userID := int64(msg.From.ID)
+	logInfo("handleStart called for user %d", userID)
+
 	if isAdmin(userID) {
+		logInfo("User %d is admin, showing admin menu", userID)
 		showAdminMenu(bot, db, msg.Chat.ID)
 		return
 	}
@@ -1489,6 +1492,8 @@ func handleStart(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 	if args != "" {
 		referrerTelegramID, _ = strconv.ParseInt(args, 10, 64)
 		logInfo("User %d started with referral code: %d", userID, referrerTelegramID)
+	} else {
+		logInfo("User %d started without referral code", userID)
 	}
 
 	// بررسی وضعیت کاربر
@@ -1506,21 +1511,39 @@ func handleStart(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 
 		// اگر referrer ID معتبر بود
 		if referrerTelegramID != 0 {
-			referrer, _ := getUserByTelegramID(db, referrerTelegramID)
-			if referrer != nil && referrer.ID != 0 {
+			referrer, referrerErr := getUserByTelegramID(db, referrerTelegramID)
+			if referrerErr == nil && referrer != nil && referrer.ID != 0 {
 				newUser.ReferrerID = &referrer.ID
 				logInfo("User %d referred by user ID %d (Telegram ID: %d)", userID, referrer.ID, referrerTelegramID)
 
 				// اطلاع به referrer
 				referrerMsg := fmt.Sprintf("🎉 کاربر جدیدی با لینک شما وارد شد!\n👤 آیدی: %d\n💡 وقتی ثبت‌نام کامل کنه، اطلاعت میدم!", userID)
-				bot.Send(tgbotapi.NewMessage(referrer.TelegramID, referrerMsg))
+				_, err := bot.Send(tgbotapi.NewMessage(referrer.TelegramID, referrerMsg))
+				if err != nil {
+					logError("Failed to send referrer notification to user %d: %v", referrer.TelegramID, err)
+				} else {
+					logInfo("Referrer notification sent to user %d", referrer.TelegramID)
+				}
 			} else {
-				logInfo("Invalid referrer ID %d for user %d", referrerTelegramID, userID)
+				logInfo("Invalid referrer ID %d for user %d (error: %v)", referrerTelegramID, userID, referrerErr)
 			}
 		}
 
-		db.Create(&newUser)
-		logInfo("New user %d created successfully", userID)
+		// ایجاد کاربر در دیتابیس
+		result := db.Create(&newUser)
+		if result.Error != nil {
+			logError("Failed to create user %d: %v", userID, result.Error)
+			// حتی اگر خطا باشه، بازم ادامه میدیم
+			errorMsg := `😔 <b>یه مشکل فنی پیش اومد!</b>
+
+ولی نگران نباش، دوباره تلاش کن! 💪`
+			message := tgbotapi.NewMessage(msg.Chat.ID, errorMsg)
+			message.ParseMode = "HTML"
+			bot.Send(message)
+			return
+		}
+
+		logInfo("New user %d created successfully with ID %d", userID, newUser.ID)
 
 		// شروع فرآیند ثبت‌نام
 		startRegistrationProcess(bot, db, msg.Chat.ID, userID)
@@ -1544,13 +1567,21 @@ func handleStart(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 
 	message := tgbotapi.NewMessage(msg.Chat.ID, welcomeMsg)
 	message.ParseMode = "HTML"
-	bot.Send(message)
+
+	result, err := bot.Send(message)
+	if err != nil {
+		logError("Failed to send welcome message to user %d: %v", userID, err)
+	} else {
+		logInfo("Welcome message sent successfully to user %d (message ID: %d)", userID, result.MessageID)
+	}
 
 	showMainMenu(bot, db, msg.Chat.ID, userID)
 }
 
 // شروع فرآیند ثبت‌نام
 func startRegistrationProcess(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64) {
+	logInfo("Starting registration process for user %d", userID)
+
 	setRegState(userID, "full_name")
 	regTemp.Lock()
 	regTemp.m[userID] = make(map[string]string)
@@ -1570,7 +1601,13 @@ func startRegistrationProcess(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, u
 
 	message := tgbotapi.NewMessage(chatID, welcomeMsg)
 	message.ParseMode = "HTML"
-	bot.Send(message)
+
+	result, err := bot.Send(message)
+	if err != nil {
+		logError("Failed to send registration message to user %d: %v", userID, err)
+	} else {
+		logInfo("Registration message sent successfully to user %d (message ID: %d)", userID, result.MessageID)
+	}
 }
 
 func showUserInfo(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, user *models.User) {
