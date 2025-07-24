@@ -1288,53 +1288,6 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 		showWalletMenu(bot, db, msg.Chat.ID, userID)
 		return true
 	}
-	if state == "reward_withdraw_amount" {
-		if msg.Text == "لغو برداشت" {
-			clearRegState(userID)
-			showRewardsMenu(bot, db, msg.Chat.ID, userID)
-			return true
-		}
-		amount, err := strconv.ParseFloat(msg.Text, 64)
-		if err != nil || amount <= 0 {
-			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ مبلغ نامعتبر است. لطفاً فقط عدد وارد کنید."))
-			return true
-		}
-		user, _ := getUserByTelegramID(db, userID)
-		if user == nil || user.ReferralReward < amount {
-			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ موجودی پاداش کافی نیست."))
-			return true
-		}
-		user.ReferralReward -= amount
-		db.Save(user)
-		tx := models.Transaction{
-			UserID: user.ID,
-			Type:   "reward_withdraw",
-			Amount: amount,
-			Status: "pending",
-		}
-		db.Create(&tx)
-		adminMsg := fmt.Sprintf(`🎁 <b>درخواست برداشت پاداش</b>
-
-		👤 <b>کاربر:</b> %s (آیدی: <code>%d</code>)
-		💰 <b>مبلغ:</b> <b>%.2f USDT</b>
-		
-		برای تایید یا رد این برداشت پاداش، یکی از دکمه‌های زیر را انتخاب کنید.`, user.FullName, user.TelegramID, amount)
-		adminBtns := tgbotapi.NewInlineKeyboardMarkup(
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("پرداخت شد", fmt.Sprintf("approve_withdraw_%d", tx.ID)),
-				tgbotapi.NewInlineKeyboardButtonData("رد شد", fmt.Sprintf("reject_withdraw_%d", tx.ID)),
-			),
-		)
-		msgToAdmin := tgbotapi.NewMessage(adminUserID, adminMsg)
-		msgToAdmin.ReplyMarkup = adminBtns
-		bot.Send(msgToAdmin)
-		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "✅ درخواست برداشت پاداش ثبت شد و در انتظار تایید ادمین است."))
-		clearRegState(userID)
-
-		// بازگشت به منوی پاداش
-		showRewardsMenu(bot, db, msg.Chat.ID, userID)
-		return true
-	}
 
 	// --- Bank Info Update States ---
 	if state == "update_bank_sheba" {
@@ -1707,16 +1660,8 @@ func handleSubmenuActions(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Messa
 		msgSend.ReplyMarkup = cancelKeyboard
 		bot.Send(msgSend)
 		return
-	case "💰 دریافت پاداش":
-		setRegState(userID, "reward_withdraw_amount")
-		cancelKeyboard := tgbotapi.NewReplyKeyboard(
-			tgbotapi.NewKeyboardButtonRow(
-				tgbotapi.NewKeyboardButton("لغو برداشت"),
-			),
-		)
-		msgSend := tgbotapi.NewMessage(msg.Chat.ID, "🎁 لطفاً مبلغ برداشت پاداش را به عدد وارد کنید (USDT):")
-		msgSend.ReplyMarkup = cancelKeyboard
-		bot.Send(msgSend)
+	case "💰 انتقال پاداش به کیف پول":
+		handleRewardTransfer(bot, db, userID, msg.Chat.ID)
 		return
 	case "📋 تاریخچه":
 		showTransactionHistory(bot, db, msg)
@@ -1928,10 +1873,7 @@ func showRewardsMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int
 			tgbotapi.NewKeyboardButton("🔗 لینک رفرال"),
 		),
 		tgbotapi.NewKeyboardButtonRow(
-			tgbotapi.NewKeyboardButton("💰 دریافت پاداش"),
-		),
-		tgbotapi.NewKeyboardButtonRow(
-			tgbotapi.NewKeyboardButton("🏦 تغییر اطلاعات بانکی"),
+			tgbotapi.NewKeyboardButton("💰 انتقال پاداش به کیف پول"),
 		),
 		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("⬅️ بازگشت"),
@@ -1948,7 +1890,7 @@ func showRewardsMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int
 
 💡 *گزینه‌های موجود:*
 🔗 *لینک رفرال* - دریافت لینک معرفی
-💰 *دریافت پاداش* - انتقال پاداش به کیف پول
+💰 *انتقال پاداش* - انتقال پاداش به کیف پول اصلی
 ⬅️ *بازگشت* - بازگشت به منوی اصلی`,
 		user.ReferralReward, referralCount)
 
@@ -3047,4 +2989,108 @@ func showRatesManagement(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) {
 	message := tgbotapi.NewMessage(chatID, rateMsg)
 	message.ParseMode = "HTML"
 	bot.Send(message)
+}
+
+// handleRewardTransfer handles transferring rewards to main wallet
+func handleRewardTransfer(bot *tgbotapi.BotAPI, db *gorm.DB, userID int64, chatID int64) {
+	// Get user
+	user, err := getUserByTelegramID(db, userID)
+	if err != nil || user == nil {
+		bot.Send(tgbotapi.NewMessage(chatID, "😔 یه مشکلی پیش اومد. \n\nاول ثبت‌نام کن، بعد برگرد! 😊"))
+		return
+	}
+
+	// Check minimum transfer amount (2 million Toman)
+	usdtRate, err := getUSDTRate(db)
+	if err != nil {
+		usdtRate = 59500 // Default rate if error
+	}
+
+	minTransferToman := 2000000.0 // 2 million Toman
+	minTransferUSDT := minTransferToman / usdtRate
+	rewardsToman := user.ReferralReward * usdtRate
+
+	// Check if user has enough rewards
+	if user.ReferralReward <= 0 {
+		msg := `💰 <b>انتقال پاداش به کیف پول</b>
+
+😔 متاسفانه موجودی پاداش شما صفر است.
+
+🔗 برای کسب پاداش، از لینک رفرال خود استفاده کنید و دوستان را دعوت کنید!`
+
+		message := tgbotapi.NewMessage(chatID, msg)
+		message.ParseMode = "HTML"
+		bot.Send(message)
+		showRewardsMenu(bot, db, chatID, userID)
+		return
+	}
+
+	// Check minimum amount
+	if rewardsToman < minTransferToman {
+		msg := fmt.Sprintf(`💰 <b>انتقال پاداش به کیف پول</b>
+
+⚠️ حداقل مبلغ قابل انتقال: <b>%s تومان</b>
+
+💰 موجودی فعلی پاداش شما: <b>%.2f USDT</b>
+💵 معادل: <b>%s تومان</b>
+💱 نرخ امروز: <b>%s تومان</b>
+
+🔗 برای رسیدن به حداقل، بیشتر دعوت کنید!`,
+			addCommas(int64(minTransferToman)),
+			user.ReferralReward,
+			addCommas(int64(rewardsToman)),
+			addCommas(int64(usdtRate)))
+
+		message := tgbotapi.NewMessage(chatID, msg)
+		message.ParseMode = "HTML"
+		bot.Send(message)
+		showRewardsMenu(bot, db, chatID, userID)
+		return
+	}
+
+	// Transfer all rewards to main balance (ERC20Balance)
+	transferAmount := user.ReferralReward
+	user.ERC20Balance += transferAmount
+	user.ReferralReward = 0
+
+	// Save user changes
+	result := db.Save(user)
+	if result.Error != nil {
+		bot.Send(tgbotapi.NewMessage(chatID, "😔 خطا در انتقال پاداش. لطفاً دوباره تلاش کنید."))
+		return
+	}
+
+	// Create transaction record
+	tx := models.Transaction{
+		UserID:    user.ID,
+		Type:      "reward_transfer",
+		Amount:    transferAmount,
+		Status:    "confirmed",
+		Network:   "INTERNAL",
+		CreatedAt: time.Now(),
+	}
+	db.Create(&tx)
+
+	// Send success message
+	transferToman := transferAmount * usdtRate
+	successMsg := fmt.Sprintf(`🎉 <b>انتقال پاداش موفقیت‌آمیز!</b>
+
+✅ <b>مبلغ انتقال یافته:</b>
+• پاداش: <b>%.2f USDT</b>
+• معادل: <b>%s تومان</b>
+
+💰 <b>موجودی جدید کیف پول:</b> <b>%.2f USDT</b>
+🎁 <b>موجودی پاداش:</b> <b>0 USDT</b>
+
+💡 حالا می‌تونید از منوی کیف پول برداشت کنید!`,
+		transferAmount,
+		addCommas(int64(transferToman)),
+		user.ERC20Balance)
+
+	message := tgbotapi.NewMessage(chatID, successMsg)
+	message.ParseMode = "HTML"
+	bot.Send(message)
+
+	// Return to rewards menu
+	showRewardsMenu(bot, db, chatID, userID)
 }
