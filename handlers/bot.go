@@ -3007,7 +3007,6 @@ func handleRewardTransfer(bot *tgbotapi.BotAPI, db *gorm.DB, userID int64, chatI
 	}
 
 	minTransferToman := 2000000.0 // 2 million Toman
-	minTransferUSDT := minTransferToman / usdtRate
 	rewardsToman := user.ReferralReward * usdtRate
 
 	// Check if user has enough rewards
@@ -3036,10 +3035,10 @@ func handleRewardTransfer(bot *tgbotapi.BotAPI, db *gorm.DB, userID int64, chatI
 💱 نرخ امروز: <b>%s تومان</b>
 
 🔗 برای رسیدن به حداقل، بیشتر دعوت کنید!`,
-			addCommas(int64(minTransferToman)),
+			formatToman(minTransferToman),
 			user.ReferralReward,
-			addCommas(int64(rewardsToman)),
-			addCommas(int64(usdtRate)))
+			formatToman(rewardsToman),
+			formatToman(usdtRate))
 
 		message := tgbotapi.NewMessage(chatID, msg)
 		message.ParseMode = "HTML"
@@ -3084,7 +3083,7 @@ func handleRewardTransfer(bot *tgbotapi.BotAPI, db *gorm.DB, userID int64, chatI
 
 💡 حالا می‌تونید از منوی کیف پول برداشت کنید!`,
 		transferAmount,
-		addCommas(int64(transferToman)),
+		formatToman(transferToman),
 		user.ERC20Balance)
 
 	message := tgbotapi.NewMessage(chatID, successMsg)
