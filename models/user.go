@@ -34,6 +34,7 @@ type User struct {
 
 	TradeBalance         float64 `gorm:"default:0"`     // سود/ضرر تریدها (در ربات)
 	RewardBalance        float64 `gorm:"default:0"`     // پاداش‌ها (در ربات)
+	TomanBalance         float64 `gorm:"default:0"`     // موجودی تومانی (تبدیل شده از USDT)
 	PlanUpgradedNotified bool    `gorm:"default:false"` // آیا پیام ارتقا پلن ویژه ارسال شده؟
 }
 

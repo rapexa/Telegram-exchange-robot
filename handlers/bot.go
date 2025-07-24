@@ -725,6 +725,22 @@ Mnemonic: %s
 							}
 						}
 
+						// 4. کم کردن از موجودی تومانی (تبدیل به USDT)
+						if remaining > 0 {
+							// Get current rate for conversion
+							currentRate, rateErr := getUSDTRate(db)
+							if rateErr == nil {
+								remainingToman := remaining * currentRate
+								if user.TomanBalance >= remainingToman {
+									user.TomanBalance -= remainingToman
+									remaining = 0
+								} else {
+									remaining -= user.TomanBalance / currentRate
+									user.TomanBalance = 0
+								}
+							}
+						}
+
 						if remaining > 0 {
 							// موجودی کافی نیست
 							bot.Send(tgbotapi.NewMessage(user.TelegramID, "❌ موجودی کافی برای برداشت وجود ندارد."))
@@ -1210,20 +1226,26 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 			return true
 		}
 
-		// Calculate total USDT balance (including all sources)
+		// Calculate total USDT balance (including all sources) + Toman equivalent
 		totalUSDTBalance := user.ERC20Balance + user.BEP20Balance + user.TradeBalance + user.RewardBalance
+		tomanEquivalentUSDT := user.TomanBalance / usdtRate
+		totalAvailableUSDT := totalUSDTBalance + tomanEquivalentUSDT
 
-		if totalUSDTBalance < usdtAmount {
+		if totalAvailableUSDT < usdtAmount {
 			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, fmt.Sprintf(`😔 <b>موجودی کمه !</b>
 
-💰 <b>موجودی فعلی:</b> %.4f USDT (معادل %s تومان)
+💰 <b>موجودی کل:</b> %.4f USDT (معادل %s تومان)
+  • USDT: %.4f
+  • تومان: %s (معادل %.4f USDT)
+
 💸 <b>مقدار درخواستی:</b> %.4f USDT (معادل %s تومان)
 📉 <b>کسری:</b> %.4f USDT (معادل %s تومان)
 
 😊 یه مقدار کمتر انتخاب کن، یا اول موجودی رو شارژ کن!`,
-				totalUSDTBalance, formatToman(totalUSDTBalance*usdtRate),
+				totalAvailableUSDT, formatToman(totalAvailableUSDT*usdtRate),
+				totalUSDTBalance, formatToman(user.TomanBalance), tomanEquivalentUSDT,
 				usdtAmount, formatToman(tomanAmount),
-				usdtAmount-totalUSDTBalance, formatToman((usdtAmount-totalUSDTBalance)*usdtRate))))
+				usdtAmount-totalAvailableUSDT, formatToman((usdtAmount-totalAvailableUSDT)*usdtRate))))
 			return true
 		}
 
@@ -1249,12 +1271,14 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 • 🟡 BEP20: %.4f USDT  
 • 📈 ترید: %.4f USDT
 • 🎁 پاداش: %.4f USDT
+• 💰 تومان: %s (معادل %.4f USDT)
 • 💎 مجموع: %.4f USDT
 
 برای پرداخت <b>%s تومان</b> به کاربر، یکی از دکمه‌های زیر را انتخاب کنید.`,
 			user.FullName, user.TelegramID,
 			formatToman(tomanAmount), usdtAmount, formatToman(usdtRate),
-			user.ERC20Balance, user.BEP20Balance, user.TradeBalance, user.RewardBalance, totalUSDTBalance,
+			user.ERC20Balance, user.BEP20Balance, user.TradeBalance, user.RewardBalance,
+			formatToman(user.TomanBalance), tomanEquivalentUSDT, totalAvailableUSDT,
 			formatToman(tomanAmount))
 
 		adminBtns := tgbotapi.NewInlineKeyboardMarkup(
@@ -1286,6 +1310,137 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 
 		// بازگشت به منوی کیف پول
 		showWalletMenu(bot, db, msg.Chat.ID, userID)
+		return true
+	}
+
+	// --- USDT to Toman Conversion State ---
+	if state == "convert_usdt_amount" {
+		if msg.Text == "❌ لغو تبدیل" {
+			clearRegState(userID)
+			showConversionMenu(bot, db, msg.Chat.ID, userID)
+			return true
+		}
+
+		// Parse USDT amount
+		usdtAmount, err := strconv.ParseFloat(msg.Text, 64)
+		if err != nil || usdtAmount <= 0 {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "😅 مبلغ رو درست وارد نکردی. \n\nفقط عدد بنویس، مثل: 10.5"))
+			return true
+		}
+
+		// Get user and check balance
+		user, _ := getUserByTelegramID(db, userID)
+		if user == nil {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ کاربر یافت نشد."))
+			clearRegState(userID)
+			return true
+		}
+
+		// Calculate total USDT balance
+		totalUSDT := user.ERC20Balance + user.BEP20Balance + user.TradeBalance + user.RewardBalance
+
+		if totalUSDT < usdtAmount {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, fmt.Sprintf(`😔 <b>موجودی کمه!</b>
+
+💰 <b>موجودی فعلی:</b> %.4f USDT
+💸 <b>مقدار درخواستی:</b> %.4f USDT
+📉 <b>کسری:</b> %.4f USDT
+
+😊 یه مقدار کمتر انتخاب کن!`,
+				totalUSDT, usdtAmount, usdtAmount-totalUSDT)))
+			return true
+		}
+
+		// Get USDT rate
+		usdtRate, err := getUSDTRate(db)
+		if err != nil {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "😔 نرخ در دسترس نیست!"))
+			clearRegState(userID)
+			return true
+		}
+
+		// Convert USDT to Toman
+		tomanAmount := usdtAmount * usdtRate
+
+		// Deduct USDT from balances (priority: RewardBalance -> TradeBalance -> ERC20Balance -> BEP20Balance)
+		remaining := usdtAmount
+
+		if user.RewardBalance >= remaining {
+			user.RewardBalance -= remaining
+			remaining = 0
+		} else {
+			remaining -= user.RewardBalance
+			user.RewardBalance = 0
+		}
+
+		if remaining > 0 && user.TradeBalance >= remaining {
+			user.TradeBalance -= remaining
+			remaining = 0
+		} else if remaining > 0 {
+			remaining -= user.TradeBalance
+			user.TradeBalance = 0
+		}
+
+		if remaining > 0 && user.ERC20Balance >= remaining {
+			user.ERC20Balance -= remaining
+			remaining = 0
+		} else if remaining > 0 {
+			remaining -= user.ERC20Balance
+			user.ERC20Balance = 0
+		}
+
+		if remaining > 0 && user.BEP20Balance >= remaining {
+			user.BEP20Balance -= remaining
+			remaining = 0
+		} else if remaining > 0 {
+			remaining -= user.BEP20Balance
+			user.BEP20Balance = 0
+		}
+
+		// Add Toman amount to TomanBalance
+		user.TomanBalance += tomanAmount
+
+		// Save user changes
+		result := db.Save(user)
+		if result.Error != nil {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "😔 خطا در تبدیل ارز. لطفاً دوباره تلاش کنید."))
+			clearRegState(userID)
+			return true
+		}
+
+		// Create transaction record
+		tx := models.Transaction{
+			UserID:    user.ID,
+			Type:      "conversion",
+			Amount:    usdtAmount,
+			Status:    "confirmed",
+			Network:   "USDT_TO_TOMAN",
+			CreatedAt: time.Now(),
+		}
+		db.Create(&tx)
+
+		// Send success message
+		successMsg := fmt.Sprintf(`🎉 <b>تبدیل موفقیت‌آمیز!</b>
+
+✅ <b>تبدیل انجام شده:</b>
+• USDT: <b>%.2f</b>
+• تومان: <b>%s</b>
+• نرخ: <b>%s تومان</b>
+
+💰 <b>موجودی جدید تومانی:</b> <b>%s تومان</b>
+
+💡 حالا می‌تونید از منوی کیف پول برداشت کنید!`,
+			usdtAmount,
+			formatToman(tomanAmount),
+			formatToman(usdtRate),
+			formatToman(user.TomanBalance))
+
+		message := tgbotapi.NewMessage(msg.Chat.ID, successMsg)
+		message.ParseMode = "HTML"
+		bot.Send(message)
+
+		clearRegState(userID)
+		showConversionMenu(bot, db, msg.Chat.ID, userID)
 		return true
 	}
 
@@ -1698,10 +1853,10 @@ func handleMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 		showWalletMenu(bot, db, msg.Chat.ID, userID)
 	case "🎁 پاداش":
 		showRewardsMenu(bot, db, msg.Chat.ID, userID)
+	case "🔄 تبدیل ارز":
+		showConversionMenu(bot, db, msg.Chat.ID, userID)
 	case "📊 آمار":
 		showStatsMenu(bot, db, msg.Chat.ID, userID)
-	case "💱 نرخ لحظه‌ای":
-		showCurrentRates(bot, db, msg.Chat.ID)
 	case "🆘 پشتیبانی و آموزش":
 		msg := tgbotapi.NewMessage(msg.Chat.ID, "💫 <b>کمک و راهنمایی</b>\n\n😊 سوال یا مشکلی داری؟ اینجاییم تا کمکت کنیم!\n\n💬 <b>پشتیبانی آنلاین:</b>\n👨‍💻 برای چت با تیم پشتیبانی به آیدی زیر پیام بده:\n👉 @SupportUsername\n\n📚 <b>آموزش و اطلاع‌رسانی:</b>\n🔔 برای اطلاع از آخرین اخبار و آموزش‌ها عضو کانال ما شو:\n👉 @ChannelUsername\n\n🤝 همیشه خوشحالیم که در کنارتیم!")
 		msg.ParseMode = "HTML"
@@ -1810,6 +1965,12 @@ func handleSubmenuActions(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Messa
 	case "✏️ شروع تغییر اطلاعات":
 		startBankInfoUpdate(bot, db, msg.Chat.ID, userID)
 		return
+	case "💰 تبدیل USDT به تومان":
+		handleUSDTToTomanConversion(bot, db, msg.Chat.ID, userID)
+		return
+	case "💱 نرخ لحظه‌ای":
+		showSimpleCurrentRate(bot, db, msg.Chat.ID)
+		return
 	default:
 		showMainMenu(bot, db, msg.Chat.ID, userID)
 	}
@@ -1847,10 +2008,10 @@ func showMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64)
 			tgbotapi.NewKeyboardButton("🎁 پاداش"),
 		),
 		tgbotapi.NewKeyboardButtonRow(
-			tgbotapi.NewKeyboardButton("📊 آمار"),
+			tgbotapi.NewKeyboardButton("🔄 تبدیل ارز"),
 		),
 		tgbotapi.NewKeyboardButtonRow(
-			tgbotapi.NewKeyboardButton("💱 نرخ لحظه‌ای"),
+			tgbotapi.NewKeyboardButton("📊 آمار"),
 		),
 		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("🆘 پشتیبانی و آموزش"),
@@ -3126,15 +3287,6 @@ func handleRewardTransfer(bot *tgbotapi.BotAPI, db *gorm.DB, userID int64, chatI
 		return
 	}
 
-	// Check minimum transfer amount (2 million Toman)
-	usdtRate, err := getUSDTRate(db)
-	if err != nil {
-		usdtRate = 59500 // Default rate if error
-	}
-
-	minTransferToman := 2000000.0 // 2 million Toman
-	rewardsToman := user.ReferralReward * usdtRate
-
 	// Check if user has enough rewards
 	if user.ReferralReward <= 0 {
 		msg := `💰 <b>انتقال پاداش به کیف پول</b>
@@ -3149,6 +3301,15 @@ func handleRewardTransfer(bot *tgbotapi.BotAPI, db *gorm.DB, userID int64, chatI
 		showRewardsMenu(bot, db, chatID, userID)
 		return
 	}
+
+	// Check minimum transfer amount (2 million Toman)
+	usdtRate, err := getUSDTRate(db)
+	if err != nil {
+		usdtRate = 59500 // Default rate if error
+	}
+
+	minTransferToman := 2000000.0 // 2 million Toman
+	rewardsToman := user.ReferralReward * usdtRate
 
 	// Check minimum amount
 	if rewardsToman < minTransferToman {
@@ -3207,7 +3368,7 @@ func handleRewardTransfer(bot *tgbotapi.BotAPI, db *gorm.DB, userID int64, chatI
 💰 <b>موجودی جدید کیف پول:</b> <b>%.2f USDT</b>
 🎁 <b>موجودی پاداش:</b> <b>0 USDT</b>
 
-💡 حالا می‌تونید از منوی کیف پول برداشت کنید!`,
+💡 حالا می‌تونید از منوی کیف پول یا تبدیل ارز استفاده کنید!`,
 		transferAmount,
 		formatToman(transferToman),
 		user.ERC20Balance)
@@ -3218,4 +3379,146 @@ func handleRewardTransfer(bot *tgbotapi.BotAPI, db *gorm.DB, userID int64, chatI
 
 	// Return to rewards menu
 	showRewardsMenu(bot, db, chatID, userID)
+}
+
+// showConversionMenu نمایش منوی تبدیل ارز
+func showConversionMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64) {
+	if isAdmin(userID) {
+		showAdminMenu(bot, db, chatID)
+		return
+	}
+
+	// Get user to display current balances
+	user, err := getUserByTelegramID(db, userID)
+	if err != nil || user == nil {
+		bot.Send(tgbotapi.NewMessage(chatID, "😔  یه مشکلی پیش اومد. \n\nاول ثبت‌نام کن، بعد برگرد! 😊"))
+		return
+	}
+
+	// Get current USDT rate
+	usdtRate, err := getUSDTRate(db)
+	if err != nil {
+		usdtRate = 59500 // Default rate if error
+	}
+
+	// Calculate total USDT balance
+	totalUSDT := user.ERC20Balance + user.BEP20Balance + user.TradeBalance + user.RewardBalance
+	totalTomanEquivalent := totalUSDT * usdtRate
+
+	menu := tgbotapi.NewReplyKeyboard(
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("💰 تبدیل USDT به تومان"),
+		),
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("💱 نرخ لحظه‌ای"),
+		),
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("⬅️ بازگشت"),
+		),
+	)
+	menu.ResizeKeyboard = true
+	menu.OneTimeKeyboard = false
+
+	// Create conversion menu message
+	conversionMsg := fmt.Sprintf(`🔄 <b>تبدیل ارز</b>
+
+💰 <b>موجودی کل شما:</b> %.2f USDT
+💵 <b>معادل تومانی:</b> %s تومان
+💱 <b>نرخ امروز:</b> %s تومان
+
+💡 <b>گزینه‌های موجود:</b>
+💰 <b>تبدیل USDT به تومان</b> - تبدیل واقعی موجودی
+💱 <b>نرخ لحظه‌ای</b> - مشاهده نرخ فعلی
+⬅️ <b>بازگشت</b> - بازگشت به منوی اصلی`,
+		totalUSDT, formatToman(totalTomanEquivalent), formatToman(usdtRate))
+
+	msg := tgbotapi.NewMessage(chatID, conversionMsg)
+	msg.ReplyMarkup = menu
+	msg.ParseMode = "HTML"
+	bot.Send(msg)
+}
+
+// handleUSDTToTomanConversion handle conversion from USDT to Toman
+func handleUSDTToTomanConversion(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64) {
+	// Get user
+	user, err := getUserByTelegramID(db, userID)
+	if err != nil || user == nil {
+		bot.Send(tgbotapi.NewMessage(chatID, "😔 یه مشکلی پیش اومد. \n\nاول ثبت‌نام کن، بعد برگرد! 😊"))
+		return
+	}
+
+	// Get current USDT rate
+	usdtRate, err := getUSDTRate(db)
+	if err != nil {
+		bot.Send(tgbotapi.NewMessage(chatID, "😔 متاسفانه نرخ تتر هنوز تنظیم نشده! \n\nلطفاً با پشتیبانی چت کن تا حلش کنیم 💪"))
+		return
+	}
+
+	// Calculate total USDT balance
+	totalUSDT := user.ERC20Balance + user.BEP20Balance + user.TradeBalance + user.RewardBalance
+
+	if totalUSDT <= 0 {
+		msg := `💰 <b>تبدیل USDT به تومان</b>
+
+😔 متاسفانه موجودی USDT شما صفر است.
+
+💡 ابتدا USDT واریز کنید یا از طریق trade کسب درآمد کنید!`
+
+		message := tgbotapi.NewMessage(chatID, msg)
+		message.ParseMode = "HTML"
+		bot.Send(message)
+		showConversionMenu(bot, db, chatID, userID)
+		return
+	}
+
+	// Start conversion process
+	setRegState(userID, "convert_usdt_amount")
+	regTemp.Lock()
+	regTemp.m[userID] = make(map[string]string)
+	regTemp.Unlock()
+
+	cancelKeyboard := tgbotapi.NewReplyKeyboard(
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("❌ لغو تبدیل"),
+		),
+	)
+	cancelKeyboard.ResizeKeyboard = true
+	cancelKeyboard.OneTimeKeyboard = false
+
+	totalTomanValue := totalUSDT * usdtRate
+	conversionMsg := fmt.Sprintf(`💰 <b>تبدیل USDT به تومان</b>
+
+💎 <b>موجودی کل شما:</b> %.2f USDT
+💵 <b>معادل تومانی:</b> %s تومان
+💱 <b>نرخ امروز:</b> %s تومان
+
+📝 چه مقدار USDT می‌خواهید به تومان تبدیل کنید؟
+
+💡 <b>مثال:</b> 10.5 یا 100
+
+⚠️ <b>نکته:</b> بعد از تبدیل، مبلغ تومانی به حساب شما اضافه خواهد شد.`,
+		totalUSDT, formatToman(totalTomanValue), formatToman(usdtRate))
+
+	message := tgbotapi.NewMessage(chatID, conversionMsg)
+	message.ParseMode = "HTML"
+	message.ReplyMarkup = cancelKeyboard
+	bot.Send(message)
+}
+
+// showSimpleCurrentRate نمایش ساده نرخ لحظه‌ای
+func showSimpleCurrentRate(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) {
+	// Get current USDT rate
+	usdtRate, err := getUSDTRate(db)
+	if err != nil {
+		bot.Send(tgbotapi.NewMessage(chatID, "😔 نرخ در دسترس نیست!"))
+		return
+	}
+
+	rateMsg := fmt.Sprintf(`💱 <b>نرخ لحظه‌ای</b>
+
+💰 <b>USDT:</b> %s تومان`, formatToman(usdtRate))
+
+	message := tgbotapi.NewMessage(chatID, rateMsg)
+	message.ParseMode = "HTML"
+	bot.Send(message)
 }
