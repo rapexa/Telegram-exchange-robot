@@ -1994,6 +1994,7 @@ func showMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64)
 	blockchainBalance := erc20Balance + bep20Balance
 	tradeBalance := user.TradeBalance
 	rewardBalance := user.RewardBalance
+	tomanBalance := user.TomanBalance
 	totalBalance := blockchainBalance + tradeBalance + rewardBalance
 
 	// Count successful referrals
@@ -2060,6 +2061,7 @@ func showWalletMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int6
 	blockchainBalance := erc20Balance + bep20Balance
 	tradeBalance := user.TradeBalance
 	rewardBalance := user.RewardBalance
+	tomanBalance := user.TomanBalance
 	totalBalance := blockchainBalance + tradeBalance + rewardBalance
 
 	menu := tgbotapi.NewReplyKeyboard(
@@ -2087,7 +2089,7 @@ func showWalletMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int6
 	var balanceMsg string
 
 	if err == nil {
-		totalToman := totalBalance * usdtRate
+		totalToman := (totalBalance * usdtRate) + tomanBalance
 		blockchainToman := blockchainBalance * usdtRate
 		rewardToman := rewardBalance * usdtRate
 		tradeToman := tradeBalance * usdtRate
@@ -2105,6 +2107,7 @@ func showWalletMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int6
 • بلاکچین: %.4f USDT (%s تومان)
 • پاداش: %.4f USDT (%s تومان)
 • ترید: %.4f USDT (%s تومان)
+• تومانی: %s تومان
 • 🔵 ERC20: %.4f USDT (%s تومان)
 • 🟡 BEP20: %.4f USDT (%s تومان)
 
@@ -2113,6 +2116,7 @@ func showWalletMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int6
 			blockchainBalance, formatToman(blockchainToman),
 			rewardBalance, formatToman(rewardToman),
 			tradeBalance, formatToman(tradeToman),
+			formatToman(tomanBalance),
 			erc20Balance, formatToman(erc20Toman),
 			bep20Balance, formatToman(bep20Toman))
 	} else {
