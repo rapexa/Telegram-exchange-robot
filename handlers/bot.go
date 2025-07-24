@@ -1994,7 +1994,6 @@ func showMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64)
 	blockchainBalance := erc20Balance + bep20Balance
 	tradeBalance := user.TradeBalance
 	rewardBalance := user.RewardBalance
-	tomanBalance := user.TomanBalance
 	totalBalance := blockchainBalance + tradeBalance + rewardBalance
 
 	// Count successful referrals
