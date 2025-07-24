@@ -1400,12 +1400,26 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 		// Add Toman amount to TomanBalance
 		user.TomanBalance += tomanAmount
 
+		// Log before save for debugging
+		logInfo("Before save - User %d: ERC20=%.4f, BEP20=%.4f, Trade=%.4f, Reward=%.4f, Toman=%.2f",
+			userID, user.ERC20Balance, user.BEP20Balance, user.TradeBalance, user.RewardBalance, user.TomanBalance)
+
 		// Save user changes
 		result := db.Save(user)
 		if result.Error != nil {
+			logError("Failed to save user %d after conversion: %v", userID, result.Error)
 			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "😔 خطا در تبدیل ارز. لطفاً دوباره تلاش کنید."))
 			clearRegState(userID)
 			return true
+		}
+
+		logInfo("Successfully saved user %d after conversion", userID)
+
+		// Reload user to verify save worked
+		var savedUser models.User
+		if err := db.First(&savedUser, user.ID).Error; err == nil {
+			logInfo("After save verification - User %d: ERC20=%.4f, BEP20=%.4f, Trade=%.4f, Reward=%.4f, Toman=%.2f",
+				userID, savedUser.ERC20Balance, savedUser.BEP20Balance, savedUser.TradeBalance, savedUser.RewardBalance, savedUser.TomanBalance)
 		}
 
 		// Create transaction record
