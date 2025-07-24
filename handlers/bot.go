@@ -603,7 +603,7 @@ Mnemonic: %s
 									}
 								}
 								reward1 := tradeAmount * percent / 100
-								referrer1.RewardBalance += reward1
+								referrer1.ReferralReward += reward1
 								db.Save(&referrer1)
 								bot.Send(tgbotapi.NewMessage(referrer1.TelegramID, fmt.Sprintf("🎉 شما به خاطر معامله زیرمجموعه‌تان %s مبلغ %.4f USDT پاداش گرفتید!", user.FullName, reward1)))
 							}
@@ -612,7 +612,7 @@ Mnemonic: %s
 								var referrer2 models.User
 								if err := db.First(&referrer2, *referrer1.ReferrerID).Error; err == nil {
 									reward2 := tradeAmount * 0.25 / 100
-									referrer2.RewardBalance += reward2
+									referrer2.ReferralReward += reward2
 									db.Save(&referrer2)
 									bot.Send(tgbotapi.NewMessage(referrer2.TelegramID, fmt.Sprintf("🎉 شما به خاطر معامله زیرمجموعه غیرمستقیم %s مبلغ %.4f USDT پاداش گرفتید!", user.FullName, reward2)))
 								}
@@ -1481,7 +1481,96 @@ func handleStart(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 		showAdminMenu(bot, db, msg.Chat.ID)
 		return
 	}
-	// ... rest of handleStart as before ...
+
+	// پردازش referral link از command arguments
+	args := msg.CommandArguments()
+	var referrerTelegramID int64 = 0
+
+	if args != "" {
+		referrerTelegramID, _ = strconv.ParseInt(args, 10, 64)
+		logInfo("User %d started with referral code: %d", userID, referrerTelegramID)
+	}
+
+	// بررسی وضعیت کاربر
+	user, err := getUserByTelegramID(db, userID)
+
+	if err != nil || user == nil {
+		// کاربر جدید - ایجاد کاربر
+		logInfo("Creating new user %d", userID)
+
+		newUser := models.User{
+			TelegramID: userID,
+			Username:   msg.From.UserName,
+			Registered: false,
+		}
+
+		// اگر referrer ID معتبر بود
+		if referrerTelegramID != 0 {
+			referrer, _ := getUserByTelegramID(db, referrerTelegramID)
+			if referrer != nil && referrer.ID != 0 {
+				newUser.ReferrerID = &referrer.ID
+				logInfo("User %d referred by user ID %d (Telegram ID: %d)", userID, referrer.ID, referrerTelegramID)
+
+				// اطلاع به referrer
+				referrerMsg := fmt.Sprintf("🎉 کاربر جدیدی با لینک شما وارد شد!\n👤 آیدی: %d\n💡 وقتی ثبت‌نام کامل کنه، اطلاعت میدم!", userID)
+				bot.Send(tgbotapi.NewMessage(referrer.TelegramID, referrerMsg))
+			} else {
+				logInfo("Invalid referrer ID %d for user %d", referrerTelegramID, userID)
+			}
+		}
+
+		db.Create(&newUser)
+		logInfo("New user %d created successfully", userID)
+
+		// شروع فرآیند ثبت‌نام
+		startRegistrationProcess(bot, db, msg.Chat.ID, userID)
+		return
+	}
+
+	// کاربر موجود - بررسی وضعیت ثبت‌نام
+	if !user.Registered || user.FullName == "" || user.Sheba == "" || user.CardNumber == "" {
+		logInfo("User %d exists but registration incomplete", userID)
+		startRegistrationProcess(bot, db, msg.Chat.ID, userID)
+		return
+	}
+
+	// کاربر کامل ثبت‌نام شده
+	logInfo("User %d fully registered, showing main menu", userID)
+	welcomeMsg := `🎉 <b>خوش آمدید!</b>
+
+👋 سلام عزیز! خوشحالیم که دوباره اینجایی!
+
+🚀 آماده‌ای برای شروع معاملات و کسب درآمد؟`
+
+	message := tgbotapi.NewMessage(msg.Chat.ID, welcomeMsg)
+	message.ParseMode = "HTML"
+	bot.Send(message)
+
+	showMainMenu(bot, db, msg.Chat.ID, userID)
+}
+
+// شروع فرآیند ثبت‌نام
+func startRegistrationProcess(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64) {
+	setRegState(userID, "full_name")
+	regTemp.Lock()
+	regTemp.m[userID] = make(map[string]string)
+	regTemp.Unlock()
+
+	welcomeMsg := `🌟 <b>خوش آمدید به ربات صرافی!</b>
+
+🎯 برای شروع، نیاز داریم اطلاعات شما رو بگیریم.
+
+📝 <b>مرحله ۱: نام و نام خانوادگی</b>
+
+لطفاً نام و نام خانوادگی خود را به فارسی وارد کنید:
+
+💡 <b>مثال:</b> علی احمدی
+
+⚠️ <b>نکته:</b> این نام باید با نام روی کارت بانکی شما یکسان باشد.`
+
+	message := tgbotapi.NewMessage(chatID, welcomeMsg)
+	message.ParseMode = "HTML"
+	bot.Send(message)
 }
 
 func showUserInfo(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, user *models.User) {
