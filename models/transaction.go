@@ -263,9 +263,25 @@ func UpdateUserBalancesFromTransactions(db *gorm.DB) error {
 			Select("COALESCE(SUM(amount), 0)").
 			Scan(&bep20Withdrawals)
 
-		// به‌روزرسانی موجودی کاربر
-		user.ERC20Balance = erc20Deposits - erc20Withdrawals
+		// محاسبه conversion transactions (USDT که تبدیل شده)
+		var conversionAmount float64
+		db.Model(&Transaction{}).
+			Where("user_id = ? AND type = ? AND status = ?", user.ID, "conversion", "confirmed").
+			Select("COALESCE(SUM(amount), 0)").
+			Scan(&conversionAmount)
+
+		// به‌روزرسانی موجودی کاربر (منهای مقدار تبدیل شده)
+		user.ERC20Balance = erc20Deposits - erc20Withdrawals - conversionAmount
 		user.BEP20Balance = bep20Deposits - bep20Withdrawals
+
+		// If ERC20 goes negative due to conversion, deduct from BEP20
+		if user.ERC20Balance < 0 {
+			user.BEP20Balance += user.ERC20Balance // Add negative value (subtract)
+			user.ERC20Balance = 0
+			if user.BEP20Balance < 0 {
+				user.BEP20Balance = 0 // Safety check
+			}
+		}
 
 		db.Save(&user)
 	}

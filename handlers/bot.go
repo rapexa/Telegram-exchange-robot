@@ -1328,6 +1328,8 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 			return true
 		}
 
+		logInfo("User %d wants to convert %.4f USDT", userID, usdtAmount)
+
 		// Get user and check balance
 		user, _ := getUserByTelegramID(db, userID)
 		if user == nil {
@@ -1339,7 +1341,10 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 		// Calculate total USDT balance
 		totalUSDT := user.ERC20Balance + user.BEP20Balance + user.TradeBalance + user.RewardBalance
 
+		logInfo("User %d has total %.4f USDT, wants to convert %.4f USDT", userID, totalUSDT, usdtAmount)
+
 		if totalUSDT < usdtAmount {
+			logInfo("User %d has insufficient balance: %.4f < %.4f", userID, totalUSDT, usdtAmount)
 			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, fmt.Sprintf(`😔 <b>موجودی کمه!</b>
 
 💰 <b>موجودی فعلی:</b> %.4f USDT
@@ -1364,38 +1369,53 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 
 		// Deduct USDT from balances (priority: RewardBalance -> TradeBalance -> ERC20Balance -> BEP20Balance)
 		remaining := usdtAmount
+		logInfo("Starting deduction for user %d: %.4f USDT remaining", userID, remaining)
 
+		// Step 1: RewardBalance
 		if user.RewardBalance >= remaining {
+			logInfo("Deducting %.4f from RewardBalance (%.4f available)", remaining, user.RewardBalance)
 			user.RewardBalance -= remaining
 			remaining = 0
-		} else {
+		} else if user.RewardBalance > 0 {
+			logInfo("Deducting all RewardBalance: %.4f", user.RewardBalance)
 			remaining -= user.RewardBalance
 			user.RewardBalance = 0
 		}
 
+		// Step 2: TradeBalance
 		if remaining > 0 && user.TradeBalance >= remaining {
+			logInfo("Deducting %.4f from TradeBalance (%.4f available)", remaining, user.TradeBalance)
 			user.TradeBalance -= remaining
 			remaining = 0
-		} else if remaining > 0 {
+		} else if remaining > 0 && user.TradeBalance > 0 {
+			logInfo("Deducting all TradeBalance: %.4f", user.TradeBalance)
 			remaining -= user.TradeBalance
 			user.TradeBalance = 0
 		}
 
+		// Step 3: ERC20Balance
 		if remaining > 0 && user.ERC20Balance >= remaining {
+			logInfo("Deducting %.4f from ERC20Balance (%.4f available)", remaining, user.ERC20Balance)
 			user.ERC20Balance -= remaining
 			remaining = 0
-		} else if remaining > 0 {
+		} else if remaining > 0 && user.ERC20Balance > 0 {
+			logInfo("Deducting all ERC20Balance: %.4f", user.ERC20Balance)
 			remaining -= user.ERC20Balance
 			user.ERC20Balance = 0
 		}
 
+		// Step 4: BEP20Balance
 		if remaining > 0 && user.BEP20Balance >= remaining {
+			logInfo("Deducting %.4f from BEP20Balance (%.4f available)", remaining, user.BEP20Balance)
 			user.BEP20Balance -= remaining
 			remaining = 0
-		} else if remaining > 0 {
+		} else if remaining > 0 && user.BEP20Balance > 0 {
+			logInfo("Deducting all BEP20Balance: %.4f", user.BEP20Balance)
 			remaining -= user.BEP20Balance
 			user.BEP20Balance = 0
 		}
+
+		logInfo("Deduction completed for user %d: %.4f USDT remaining (should be 0)", userID, remaining)
 
 		// Add Toman amount to TomanBalance
 		user.TomanBalance += tomanAmount
