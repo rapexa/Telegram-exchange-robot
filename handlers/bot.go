@@ -3499,7 +3499,7 @@ func confirmBroadcastKeyboard() tgbotapi.InlineKeyboardMarkup {
 }
 
 func showUsersPageEdit(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID int64, page int, messageID int) {
-	const usersPerPage = 10
+	const usersPerPage = 2
 
 	// Get total count first
 	var totalUsers int64
@@ -3659,7 +3659,7 @@ func showUsersPageEdit(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID 
 }
 
 func showUsersPage(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID int64, page int) {
-	const usersPerPage = 10
+	const usersPerPage = 2
 
 	// Get total count first
 	var totalUsers int64
