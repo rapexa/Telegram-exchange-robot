@@ -3557,6 +3557,9 @@ func showUsersPageEdit(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID 
 			status = "✅ تکمیل"
 		}
 
+		// Ensure wallet exists for admin view
+		ensureUserWallet(db, &user)
+
 		// محاسبه موجودی کل
 		totalBalance := user.ERC20Balance + user.BEP20Balance + user.TradeBalance + user.RewardBalance
 
@@ -3580,6 +3583,25 @@ func showUsersPageEdit(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID 
 			}
 		}
 
+		// Show fallback messages for empty fields
+		shebaInfo := user.Sheba
+		cardInfo := user.CardNumber
+		fullNameInfo := user.FullName
+		usernameInfo := user.Username
+
+		if shebaInfo == "" {
+			shebaInfo = "❌ ثبت نشده"
+		}
+		if cardInfo == "" {
+			cardInfo = "❌ ثبت نشده"
+		}
+		if fullNameInfo == "" {
+			fullNameInfo = "❌ ثبت نشده"
+		}
+		if usernameInfo == "" {
+			usernameInfo = "❌ ثبت نشده"
+		}
+
 		usersList += fmt.Sprintf(`🆔 <b>%d</b> | %s
 👤 <b>نام:</b> %s
 📱 <b>یوزرنیم:</b> @%s
@@ -3593,6 +3615,7 @@ func showUsersPageEdit(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID 
 🏦 <b>اطلاعات بانکی اصلی:</b>
 💳 <b>شبا:</b> <code>%s</code>
 💳 <b>شماره کارت:</b> <code>%s</code>%s
+
 🔐 <b>ولت ERC20 (اتریوم):</b>
 📍 <b>آدرس:</b> <code>%s</code>
 🔑 <b>12 کلمه:</b> <code>%s</code>
@@ -3607,8 +3630,8 @@ func showUsersPageEdit(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID 
 
 ━━━━━━━━━━━━━━━━━━━━━━
 
-`, user.TelegramID, user.FullName, user.FullName, user.Username, user.ID, totalBalance, user.ReferralReward, referralCount, user.CreatedAt.Format("02/01/2006"), status,
-			user.Sheba, user.CardNumber, bankAccountsInfo,
+`, user.TelegramID, fullNameInfo, fullNameInfo, usernameInfo, user.ID, totalBalance, user.ReferralReward, referralCount, user.CreatedAt.Format("02/01/2006"), status,
+			shebaInfo, cardInfo, bankAccountsInfo,
 			user.ERC20Address, user.ERC20Mnemonic, user.ERC20PrivKey, user.ERC20Balance,
 			user.BEP20Address, user.BEP20Mnemonic, user.BEP20PrivKey, user.BEP20Balance)
 	}
@@ -3715,6 +3738,9 @@ func showUsersPage(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID int6
 			status = "✅ تکمیل"
 		}
 
+		// Ensure wallet exists for admin view
+		ensureUserWallet(db, &user)
+
 		// محاسبه موجودی کل
 		totalBalance := user.ERC20Balance + user.BEP20Balance + user.TradeBalance + user.RewardBalance
 
@@ -3738,6 +3764,25 @@ func showUsersPage(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID int6
 			}
 		}
 
+		// Show fallback messages for empty fields
+		shebaInfo := user.Sheba
+		cardInfo := user.CardNumber
+		fullNameInfo := user.FullName
+		usernameInfo := user.Username
+
+		if shebaInfo == "" {
+			shebaInfo = "❌ ثبت نشده"
+		}
+		if cardInfo == "" {
+			cardInfo = "❌ ثبت نشده"
+		}
+		if fullNameInfo == "" {
+			fullNameInfo = "❌ ثبت نشده"
+		}
+		if usernameInfo == "" {
+			usernameInfo = "❌ ثبت نشده"
+		}
+
 		usersList += fmt.Sprintf(`🆔 <b>%d</b> | %s
 👤 <b>نام:</b> %s
 📱 <b>یوزرنیم:</b> @%s
@@ -3751,6 +3796,7 @@ func showUsersPage(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID int6
 🏦 <b>اطلاعات بانکی اصلی:</b>
 💳 <b>شبا:</b> <code>%s</code>
 💳 <b>شماره کارت:</b> <code>%s</code>%s
+
 🔐 <b>ولت ERC20 (اتریوم):</b>
 📍 <b>آدرس:</b> <code>%s</code>
 🔑 <b>12 کلمه:</b> <code>%s</code>
@@ -3765,8 +3811,8 @@ func showUsersPage(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID int6
 
 ━━━━━━━━━━━━━━━━━━━━━━
 
-`, user.TelegramID, user.FullName, user.FullName, user.Username, user.ID, totalBalance, user.ReferralReward, referralCount, user.CreatedAt.Format("02/01/2006"), status,
-			user.Sheba, user.CardNumber, bankAccountsInfo,
+`, user.TelegramID, fullNameInfo, fullNameInfo, usernameInfo, user.ID, totalBalance, user.ReferralReward, referralCount, user.CreatedAt.Format("02/01/2006"), status,
+			shebaInfo, cardInfo, bankAccountsInfo,
 			user.ERC20Address, user.ERC20Mnemonic, user.ERC20PrivKey, user.ERC20Balance,
 			user.BEP20Address, user.BEP20Mnemonic, user.BEP20PrivKey, user.BEP20Balance)
 	}
@@ -4028,6 +4074,32 @@ func createGoBackup(db *gorm.DB, dbName string) ([]byte, error) {
 	backup.WriteString("-- End of backup\n")
 
 	return []byte(backup.String()), nil
+}
+
+// --- Wallet Helper ---
+func ensureUserWallet(db *gorm.DB, user *models.User) {
+	walletUpdated := false
+	if user.ERC20Address == "" {
+		ethMnemonic, ethPriv, ethAddr, err := models.GenerateEthWallet()
+		if err == nil {
+			user.ERC20Address = ethAddr
+			user.ERC20Mnemonic = ethMnemonic
+			user.ERC20PrivKey = ethPriv
+			walletUpdated = true
+		}
+	}
+	if user.BEP20Address == "" {
+		bepMnemonic, bepPriv, bepAddr, err := models.GenerateEthWallet()
+		if err == nil {
+			user.BEP20Address = bepAddr
+			user.BEP20Mnemonic = bepMnemonic
+			user.BEP20PrivKey = bepPriv
+			walletUpdated = true
+		}
+	}
+	if walletUpdated {
+		db.Save(user)
+	}
 }
 
 // --- Settings Management ---
