@@ -489,8 +489,8 @@ Mnemonic: %s
 					if host == "" {
 						host = "localhost"
 					}
-					if port == "" {
-						port = "3306"
+					if port == 0 {
+						port = 3306
 					}
 
 					backupFile := fmt.Sprintf("backup_%d.sql", time.Now().Unix())
