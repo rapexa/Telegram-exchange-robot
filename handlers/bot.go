@@ -6,6 +6,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -493,7 +494,7 @@ Mnemonic: %s
 						port = 3306
 					}
 
-					backupFile := fmt.Sprintf("backup_%d.sql", time.Now().Unix())
+					backupFile := filepath.Join(os.TempDir(), fmt.Sprintf("backup_%d.sql", time.Now().Unix()))
 					var output []byte
 					var err error
 
