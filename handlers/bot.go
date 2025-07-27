@@ -2877,7 +2877,7 @@ func showStatsMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64
 		Scan(&erc20Deposits)
 
 	db.Model(&models.Transaction{}).
-		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "ERC20", "withdraw", "confirmed").
+		Where("user_id = ? AND network = ? AND type = ? AND status IN ?", user.ID, "ERC20", "withdraw", []string{"confirmed", "completed"}).
 		Select("COALESCE(SUM(amount), 0)").
 		Scan(&erc20Withdrawals)
 
@@ -2891,7 +2891,7 @@ func showStatsMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64
 		Scan(&bep20Deposits)
 
 	db.Model(&models.Transaction{}).
-		Where("user_id = ? AND network = ? AND type = ? AND status = ?", user.ID, "BEP20", "withdraw", "confirmed").
+		Where("user_id = ? AND network = ? AND type = ? AND status IN ?", user.ID, "BEP20", "withdraw", []string{"confirmed", "completed"}).
 		Select("COALESCE(SUM(amount), 0)").
 		Scan(&bep20Withdrawals)
 
@@ -3234,12 +3234,15 @@ func showTransactionHistory(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Mes
 		return
 	}
 
+	// Get current USDT rate for conversion
+	usdtRate, _ := getUSDTRate(db)
+
 	// Calculate summary statistics
 	var totalDeposits, totalWithdrawals, totalRewardWithdrawals float64
 	var depositCount, withdrawCount, rewardWithdrawCount int64
 
 	for _, tx := range txs {
-		if tx.Status != "confirmed" {
+		if tx.Status != "confirmed" && tx.Status != "completed" {
 			continue
 		}
 		if tx.Type == "deposit" {
@@ -3254,33 +3257,59 @@ func showTransactionHistory(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Mes
 		}
 	}
 
+	// Convert withdrawal totals to Toman for display
+	totalWithdrawalsToman := totalWithdrawals * usdtRate
+	totalRewardWithdrawalsToman := totalRewardWithdrawals * usdtRate
+
 	history := fmt.Sprintf(`📋 <b>تاریخچه تراکنش‌ها</b>
 
 📊 <b>خلاصه (آخرین ۱۰ تراکنش):</b>
-• کل واریز: <b>%.2f USDT</b> (%d تراکنش)
-• کل برداشت: <b>%.2f USDT</b> (%d تراکنش)
-• کل برداشت پاداش: <b>%.2f USDT</b> (%d تراکنش)
+• کل واریز: <b>%.4f USDT</b> (%d تراکنش)
+• کل برداشت: <b>%s تومان</b> (%d تراکنش)
+• کل برداشت پاداش: <b>%s تومان</b> (%d تراکنش)
 
-📋 <b>جزئیات تراکنش‌ها:</b>`, totalDeposits, depositCount, totalWithdrawals, withdrawCount, totalRewardWithdrawals, rewardWithdrawCount)
+📋 <b>جزئیات تراکنش‌ها:</b>`, totalDeposits, depositCount, formatToman(totalWithdrawalsToman), withdrawCount, formatToman(totalRewardWithdrawalsToman), rewardWithdrawCount)
 
 	for i, tx := range txs {
-		typeFa := "💳 واریز"
+		var amountStr, networkStr string
+		typeFa := "💳 واریز USDT"
+
 		if tx.Type == "withdraw" {
-			typeFa = "💵 برداشت"
+			if tx.Network == "TOMAN" {
+				typeFa = "💵 برداشت تومانی"
+				tomanAmount := tx.Amount * usdtRate
+				amountStr = fmt.Sprintf("%s تومان (%.4f USDT)", formatToman(tomanAmount), tx.Amount)
+			} else {
+				typeFa = "💵 برداشت USDT"
+				amountStr = fmt.Sprintf("%.4f USDT", tx.Amount)
+			}
 		} else if tx.Type == "reward_withdraw" {
-			typeFa = "🎁 برداشت پاداش"
+			if tx.Network == "TOMAN" {
+				typeFa = "🎁 برداشت پاداش تومانی"
+				tomanAmount := tx.Amount * usdtRate
+				amountStr = fmt.Sprintf("%s تومان (%.4f USDT)", formatToman(tomanAmount), tx.Amount)
+			} else {
+				typeFa = "🎁 برداشت پاداش USDT"
+				amountStr = fmt.Sprintf("%.4f USDT", tx.Amount)
+			}
+		} else if tx.Type == "deposit" {
+			amountStr = fmt.Sprintf("%.4f USDT", tx.Amount)
 		}
 
-		networkFa := ""
-		if tx.Network == "ERC20" {
-			networkFa = "🔵 ERC20"
-		} else if tx.Network == "BEP20" {
-			networkFa = "🟡 BEP20"
+		// Network display for deposits only
+		if tx.Type == "deposit" {
+			if tx.Network == "ERC20" {
+				networkStr = " 🔵 ERC20"
+			} else if tx.Network == "BEP20" {
+				networkStr = " 🟡 BEP20"
+			}
 		}
 
 		statusFa := "⏳ در انتظار"
-		if tx.Status == "confirmed" {
+		if tx.Status == "confirmed" || tx.Status == "completed" {
 			statusFa = "✅ تایید شده"
+		} else if tx.Status == "approved" {
+			statusFa = "🔄 تایید شده"
 		} else if tx.Status == "failed" {
 			statusFa = "❌ ناموفق"
 		} else if tx.Status == "canceled" {
@@ -3290,11 +3319,11 @@ func showTransactionHistory(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Mes
 		// Format transaction date
 		dateStr := tx.CreatedAt.Format("02/01 15:04")
 
-		history += fmt.Sprintf("\n%d. %s %s - %.2f USDT - %s (%s)",
-			i+1, typeFa, networkFa, tx.Amount, statusFa, dateStr)
+		history += fmt.Sprintf("\n%d. %s%s - %s - %s (%s)",
+			i+1, typeFa, networkStr, amountStr, statusFa, dateStr)
 	}
 
-	history += "\n\n💡 *نکته:* فقط تراکنش‌های تایید شده در موجودی محاسبه می‌شوند."
+	history += "\n\n💡 <b>نکته:</b> واریزها به USDT و برداشت‌ها به تومان نمایش داده می‌شوند."
 
 	message := tgbotapi.NewMessage(msg.Chat.ID, history)
 	message.ParseMode = "HTML"
@@ -3321,13 +3350,14 @@ func showPersonalStats(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message)
 	db.Model(&models.User{}).Where("referrer_id = ? AND registered = ?", user.ID, true).Count(&referralCount)
 
 	// Count transactions by type and network
-	var erc20DepositCount, erc20WithdrawCount, bep20DepositCount, bep20WithdrawCount int64
+	var erc20DepositCount, erc20WithdrawCount, bep20DepositCount, bep20WithdrawCount, tomanWithdrawCount int64
 	db.Model(&models.Transaction{}).Where("user_id = ? AND network = ? AND type = ?", user.ID, "ERC20", "deposit").Count(&erc20DepositCount)
 	db.Model(&models.Transaction{}).Where("user_id = ? AND network = ? AND type = ?", user.ID, "ERC20", "withdraw").Count(&erc20WithdrawCount)
 	db.Model(&models.Transaction{}).Where("user_id = ? AND network = ? AND type = ?", user.ID, "BEP20", "deposit").Count(&bep20DepositCount)
 	db.Model(&models.Transaction{}).Where("user_id = ? AND network = ? AND type = ?", user.ID, "BEP20", "withdraw").Count(&bep20WithdrawCount)
+	db.Model(&models.Transaction{}).Where("user_id = ? AND network = ? AND type = ?", user.ID, "TOMAN", "withdraw").Count(&tomanWithdrawCount)
 
-	totalTransactions := erc20DepositCount + erc20WithdrawCount + bep20DepositCount + bep20WithdrawCount
+	totalTransactions := erc20DepositCount + erc20WithdrawCount + bep20DepositCount + bep20WithdrawCount + tomanWithdrawCount
 
 	statsMsg := fmt.Sprintf(`📈 *آمار شخصی*
 
@@ -3337,11 +3367,11 @@ func showPersonalStats(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message)
 • تاریخ عضویت: %s
 
 💰 *موجودی کیف پول:*
-• موجودی کل: %.2f USDT
-• 🔵 ERC20 (اتریوم): %.2f USDT
-• 🟡 BEP20 (بایننس): %.2f USDT
-• سود/ضرر ترید: %.2f USDT
-• پاداش: %.2f USDT
+• موجودی کل: %.4f USDT
+• 🔵 ERC20 (اتریوم): %.4f USDT
+• 🟡 BEP20 (بایننس): %.4f USDT
+• سود/ضرر ترید: %.4f USDT
+• پاداش: %.4f USDT
 
 🎁 *آمار رفرال:*
 • تعداد زیرمجموعه: %d کاربر
@@ -3351,11 +3381,12 @@ func showPersonalStats(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message)
 • 🔵 ERC20 واریز: %d مورد
 • 🔵 ERC20 برداشت: %d مورد
 • 🟡 BEP20 واریز: %d مورد
-• 🟡 BEP20 برداشت: %d مورد`,
+• 🟡 BEP20 برداشت: %d مورد
+• 💵 برداشت تومانی: %d مورد`,
 		user.FullName, user.Username, user.CreatedAt.Format("02/01/2006"),
 		totalBalance, erc20Balance, bep20Balance, tradeBalance, rewardBalance,
 		referralCount, totalTransactions,
-		erc20DepositCount, erc20WithdrawCount, bep20DepositCount, bep20WithdrawCount)
+		erc20DepositCount, erc20WithdrawCount, bep20DepositCount, bep20WithdrawCount, tomanWithdrawCount)
 
 	message := tgbotapi.NewMessage(msg.Chat.ID, statsMsg)
 	message.ParseMode = "Markdown"
@@ -3619,14 +3650,34 @@ func showAllPendingWithdrawals(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) 
 		bot.Send(tgbotapi.NewMessage(chatID, "⏳ هیچ برداشت در انتظاری وجود ندارد."))
 		return
 	}
+
+	// Get current USDT rate for conversion
+	usdtRate, _ := getUSDTRate(db)
+
 	for _, tx := range txs {
 		var user models.User
 		db.First(&user, tx.UserID)
-		typeFa := "💵 برداشت"
-		if tx.Type == "reward_withdraw" {
-			typeFa = "🎁 برداشت پاداش"
+
+		var msgText string
+		if tx.Network == "TOMAN" {
+			// برداشت تومانی - نمایش به تومان
+			tomanAmount := tx.Amount * usdtRate
+			typeFa := "💵 برداشت تومانی"
+			if tx.Type == "reward_withdraw" {
+				typeFa = "🎁 برداشت پاداش تومانی"
+			}
+			msgText = fmt.Sprintf("%s - %s تومان\nمعادل: %.4f USDT\nکاربر: %s (%d)\nتاریخ: %s",
+				typeFa, formatToman(tomanAmount), tx.Amount, user.FullName, user.TelegramID, tx.CreatedAt.Format("02/01 15:04"))
+		} else {
+			// برداشت USDT قدیمی - نمایش به USDT
+			typeFa := "💵 برداشت USDT"
+			if tx.Type == "reward_withdraw" {
+				typeFa = "🎁 برداشت پاداش USDT"
+			}
+			msgText = fmt.Sprintf("%s - %.4f USDT\nکاربر: %s (%d)\nتاریخ: %s",
+				typeFa, tx.Amount, user.FullName, user.TelegramID, tx.CreatedAt.Format("02/01 15:04"))
 		}
-		msgText := fmt.Sprintf("%s - %.2f USDT\nکاربر: %s (%d)\nتاریخ: %s", typeFa, tx.Amount, user.FullName, user.TelegramID, tx.CreatedAt.Format("02/01 15:04"))
+
 		adminBtns := tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
 				tgbotapi.NewInlineKeyboardButtonData("✅ تایید درخواست", fmt.Sprintf("approve_withdraw_%d", tx.ID)),
