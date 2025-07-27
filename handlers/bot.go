@@ -63,7 +63,8 @@ func showAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) {
 		"• `/subbalance USER_ID AMOUNT` — کاهش موجودی کاربر\n" +
 		"• `/setbalance USER_ID AMOUNT` — تنظیم موجودی کاربر\n" +
 		"• `/userinfo USER_ID` — مشاهده اطلاعات کامل کاربر و کیف پول\n" +
-		"• `/backup` — دریافت فایل پشتیبان دیتابیس\n\n" +
+		"• `/backup` — دریافت فایل پشتیبان دیتابیس (mysqldump)\n" +
+		"• `/simplebackup` — دریافت فایل پشتیبان ساده (Go-based)\n\n" +
 		"• `/settrade [شماره معامله] [حداقل درصد] [حداکثر درصد]`\n" +
 		"  └ تنظیم بازه سود/ضرر برای هر ترید\n\n" +
 		"• `/setrate [ارز] [نرخ به تومان]`\n" +
@@ -473,24 +474,109 @@ Mnemonic: %s
 				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("✅ *انجام شد!* \n\n🎯 حداکثر برداشت به *%s تومان* تنظیم شد.", formatToman(amount))))
 				continue
 			}
-			if update.Message.Command() == "backup" {
+			if update.Message.Command() == "backup" || update.Message.Command() == "simplebackup" {
 				// اجرای بکاپ دیتابیس و ارسال فایل به ادمین
 				go func(chatID int64) {
 					bot.Send(tgbotapi.NewMessage(chatID, "⏳ صبر کن، دارم فایل بکاپ رو آماده می‌کنم..."))
+
 					user := cfg.MySQL.User
 					pass := cfg.MySQL.Password
 					dbName := cfg.MySQL.DBName
+					host := cfg.MySQL.Host
+					port := cfg.MySQL.Port
+
+					// اگر host خالی باشه، default رو بذار
+					if host == "" {
+						host = "localhost"
+					}
+					if port == "" {
+						port = "3306"
+					}
+
 					backupFile := fmt.Sprintf("backup_%d.sql", time.Now().Unix())
-					cmd := exec.Command("mysqldump", "-u"+user, "-p"+pass, dbName, "--result-file="+backupFile)
-					err := cmd.Run()
+					var output []byte
+					var err error
+
+					// اگه simplebackup باشه، مستقیماً Go backup استفاده کن
+					if update.Message.Command() == "simplebackup" {
+						logInfo("Using Go-based backup (simplebackup command)")
+						bot.Send(tgbotapi.NewMessage(chatID, "🔄 استفاده از backup داخلی Go..."))
+						output, err = createGoBackup(db, dbName)
+					} else {
+						// ساخت کامند بدون password در command line
+						var cmd *exec.Cmd
+						if pass != "" {
+							// استفاده از environment variable برای password
+							cmd = exec.Command("mysqldump",
+								"--user="+user,
+								"--host="+host,
+								"--port="+fmt.Sprintf("%d", port),
+								"--single-transaction",
+								"--routines",
+								"--triggers",
+								dbName)
+							cmd.Env = append(os.Environ(), "MYSQL_PWD="+pass)
+						} else {
+							// اگه password نداره
+							cmd = exec.Command("mysqldump",
+								"--user="+user,
+								"--host="+host,
+								"--port="+fmt.Sprintf("%d", port),
+								"--single-transaction",
+								"--routines",
+								"--triggers",
+								dbName)
+						}
+
+						// گرفتن output
+						output, err = cmd.Output()
+						if err != nil {
+							// اگه mysqldump کار نکرد، از Go backup استفاده کن
+							logInfo("mysqldump failed, trying Go-based backup...")
+							bot.Send(tgbotapi.NewMessage(chatID, "⚠️ mysqldump مشکل داره! از روش جایگزین استفاده می‌کنم..."))
+
+							output, err = createGoBackup(db, dbName)
+							if err != nil {
+								bot.Send(tgbotapi.NewMessage(chatID, "😞 هر دو روش بک‌اپ شکست خورد: "+err.Error()))
+								return
+							}
+						}
+					}
+
 					if err != nil {
 						bot.Send(tgbotapi.NewMessage(chatID, "😞 متاسفانه مشکلی پیش اومد: "+err.Error()))
 						return
 					}
+
+					// نوشتن فایل
+					err = os.WriteFile(backupFile, output, 0644)
+					if err != nil {
+						bot.Send(tgbotapi.NewMessage(chatID, "😞 مشکل در نوشتن فایل: "+err.Error()))
+						return
+					}
+
+					// چک کردن اندازه فایل
+					fileInfo, err := os.Stat(backupFile)
+					if err != nil {
+						bot.Send(tgbotapi.NewMessage(chatID, "😞 مشکل در خواندن اطلاعات فایل: "+err.Error()))
+						return
+					}
+
+					if fileInfo.Size() == 0 {
+						bot.Send(tgbotapi.NewMessage(chatID, "😞 فایل بکاپ خالی است! احتمالاً مشکلی در دیتابیس وجود دارد."))
+						os.Remove(backupFile)
+						return
+					}
+
+					// ارسال فایل
 					file := tgbotapi.NewDocument(chatID, tgbotapi.FilePath(backupFile))
-					file.Caption = "📦 فایل بکاپ آماده!"
-					bot.Send(file)
-					// پاک کردن فایل بعد از ارسال (اختیاری)
+					file.Caption = fmt.Sprintf("📦 فایل بکاپ آماده!\n📊 اندازه: %.2f KB", float64(fileInfo.Size())/1024)
+					_, err = bot.Send(file)
+					if err != nil {
+						bot.Send(tgbotapi.NewMessage(chatID, "😞 مشکل در ارسال فایل: "+err.Error()))
+					}
+
+					// پاک کردن فایل بعد از ارسال
 					_ = os.Remove(backupFile)
 				}(update.Message.Chat.ID)
 				continue
@@ -3765,6 +3851,104 @@ func formatToman(val float64) string {
 		res += string(c)
 	}
 	return res
+}
+
+// --- Backup Functions ---
+func createGoBackup(db *gorm.DB, dbName string) ([]byte, error) {
+	var backup strings.Builder
+
+	// SQL header
+	backup.WriteString(fmt.Sprintf("-- MySQL Backup of %s\n", dbName))
+	backup.WriteString(fmt.Sprintf("-- Generated on %s\n", time.Now().Format("2006-01-02 15:04:05")))
+	backup.WriteString("-- Generated by Telegram Exchange Bot\n\n")
+	backup.WriteString("SET FOREIGN_KEY_CHECKS=0;\n\n")
+
+	// List of tables to backup
+	tables := []string{"users", "transactions", "trade_results", "trade_ranges", "rates", "settings", "bank_accounts"}
+
+	for _, table := range tables {
+		logInfo("Backing up table: %s", table)
+
+		// Create table structure
+		var createTable string
+		if err := db.Raw("SHOW CREATE TABLE "+table).Row().Scan(&table, &createTable); err != nil {
+			logInfo("Warning: Could not get structure for table %s: %v", table, err)
+			continue
+		}
+
+		backup.WriteString(fmt.Sprintf("-- Structure for table %s\n", table))
+		backup.WriteString("DROP TABLE IF EXISTS `" + table + "`;\n")
+		backup.WriteString(createTable + ";\n\n")
+
+		// Get table data
+		rows, err := db.Raw("SELECT * FROM " + table).Rows()
+		if err != nil {
+			logInfo("Warning: Could not get data for table %s: %v", table, err)
+			continue
+		}
+
+		// Get column names
+		columns, err := rows.Columns()
+		if err != nil {
+			logInfo("Warning: Could not get columns for table %s: %v", table, err)
+			rows.Close()
+			continue
+		}
+
+		backup.WriteString(fmt.Sprintf("-- Data for table %s\n", table))
+
+		// Process each row
+		for rows.Next() {
+			values := make([]interface{}, len(columns))
+			valuePtrs := make([]interface{}, len(columns))
+			for i := range values {
+				valuePtrs[i] = &values[i]
+			}
+
+			if err := rows.Scan(valuePtrs...); err != nil {
+				continue
+			}
+
+			// Build INSERT statement
+			backup.WriteString("INSERT INTO `" + table + "` (")
+			for i, col := range columns {
+				if i > 0 {
+					backup.WriteString(", ")
+				}
+				backup.WriteString("`" + col + "`")
+			}
+			backup.WriteString(") VALUES (")
+
+			for i, val := range values {
+				if i > 0 {
+					backup.WriteString(", ")
+				}
+
+				if val == nil {
+					backup.WriteString("NULL")
+				} else {
+					switch v := val.(type) {
+					case []byte:
+						backup.WriteString("'" + strings.ReplaceAll(string(v), "'", "\\'") + "'")
+					case string:
+						backup.WriteString("'" + strings.ReplaceAll(v, "'", "\\'") + "'")
+					case time.Time:
+						backup.WriteString("'" + v.Format("2006-01-02 15:04:05") + "'")
+					default:
+						backup.WriteString(fmt.Sprintf("%v", v))
+					}
+				}
+			}
+			backup.WriteString(");\n")
+		}
+		rows.Close()
+		backup.WriteString("\n")
+	}
+
+	backup.WriteString("SET FOREIGN_KEY_CHECKS=1;\n")
+	backup.WriteString("-- End of backup\n")
+
+	return []byte(backup.String()), nil
 }
 
 // --- Settings Management ---
