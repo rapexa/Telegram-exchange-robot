@@ -849,12 +849,16 @@ Mnemonic: %s
 						userMessage.ParseMode = "HTML"
 						bot.Send(userMessage)
 
-						// حذف دکمه‌ها از پیام ادمین
-						editMsg := tgbotapi.NewEditMessageReplyMarkup(
+						// ویرایش پیام ادمین و اضافه کردن وضعیت "پرداخت شد"
+						originalMsg := update.CallbackQuery.Message.Text
+						updatedMsg := originalMsg + "\n\n✅ <b>وضعیت:</b> پرداخت کامل شد"
+
+						editMsg := tgbotapi.NewEditMessageText(
 							update.CallbackQuery.Message.Chat.ID,
 							update.CallbackQuery.Message.MessageID,
-							tgbotapi.NewInlineKeyboardMarkup(),
+							updatedMsg,
 						)
+						editMsg.ParseMode = "HTML"
 						bot.Send(editMsg)
 
 						bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "💰 پرداخت کامل شد"))
@@ -890,12 +894,16 @@ Mnemonic: %s
 						userMessage := tgbotapi.NewMessage(user.TelegramID, userMsg)
 						bot.Send(userMessage)
 
-						// حذف دکمه‌ها از پیام ادمین
-						editMsg := tgbotapi.NewEditMessageReplyMarkup(
+						// ویرایش پیام ادمین و اضافه کردن وضعیت "رد شد"
+						originalMsg := update.CallbackQuery.Message.Text
+						updatedMsg := originalMsg + "\n\n❌ <b>وضعیت:</b> درخواست رد شد"
+
+						editMsg := tgbotapi.NewEditMessageText(
 							update.CallbackQuery.Message.Chat.ID,
 							update.CallbackQuery.Message.MessageID,
-							tgbotapi.NewInlineKeyboardMarkup(),
+							updatedMsg,
 						)
+						editMsg.ParseMode = "HTML"
 						bot.Send(editMsg)
 
 						bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "رد شد"))
