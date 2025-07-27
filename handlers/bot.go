@@ -2530,6 +2530,10 @@ func handleSubmenuActions(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Messa
 			return
 		}
 
+		// Get withdrawal limits
+		minWithdraw := getMinWithdrawToman(db)
+		maxWithdraw := getMaxWithdrawToman(db)
+
 		setRegState(userID, "withdraw_amount")
 		cancelKeyboard := tgbotapi.NewReplyKeyboard(
 			tgbotapi.NewKeyboardButtonRow(
@@ -2541,9 +2545,13 @@ func handleSubmenuActions(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Messa
 
 🎯 <b>نرخ امروز USDT:</b> %s تومان
 
+📊 <b>محدودیت‌های برداشت:</b>
+• حداقل: %s تومان
+• حداکثر: %s تومان
+
 😊 چه مقدار می‌خوای برداشت کنی؟ مبلغ رو به <b>تومان</b> بنویس:
 
-💡 <i>مثال: 1000000 (یک میلیون تومان)</i>`, formatToman(usdtRate))
+💡 <i>مثال: 5000000 (پنج میلیون تومان)</i>`, formatToman(usdtRate), formatToman(minWithdraw), formatToman(maxWithdraw))
 
 		msgSend := tgbotapi.NewMessage(msg.Chat.ID, withdrawMsg)
 		msgSend.ParseMode = "HTML"
