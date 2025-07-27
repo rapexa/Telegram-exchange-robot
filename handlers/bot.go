@@ -3544,8 +3544,9 @@ func showUsersPageEdit(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID 
 		Find(&users)
 
 	var usersList string
-	usersList = fmt.Sprintf("👥 <b>لیست کاربران (صفحه %d از %d)</b>\n", page+1, totalPages)
-	usersList += fmt.Sprintf("📊 <b>مجموع:</b> %d کاربر\n\n", totalUsers)
+	usersList = fmt.Sprintf("🔐 <b>لیست کامل کاربران و ولت‌ها (صفحه %d از %d)</b>\n", page+1, totalPages)
+	usersList += fmt.Sprintf("📊 <b>مجموع:</b> %d کاربر\n", totalUsers)
+	usersList += fmt.Sprintf("⚠️ <b>توجه:</b> اطلاعات محرمانه - برای ادمین\n\n")
 
 	for _, userData := range users {
 		user := userData.User
@@ -3559,6 +3560,26 @@ func showUsersPageEdit(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID 
 		// محاسبه موجودی کل
 		totalBalance := user.ERC20Balance + user.BEP20Balance + user.TradeBalance + user.RewardBalance
 
+		// Get multiple bank accounts
+		bankAccounts, err := user.GetBankAccounts(db)
+		bankAccountsInfo := ""
+		if err == nil && len(bankAccounts) > 0 {
+			bankAccountsInfo = "\n🏦 <b>حساب‌های بانکی متعدد:</b>\n"
+			for i, acc := range bankAccounts {
+				defaultIcon := ""
+				if acc.IsDefault {
+					defaultIcon = " ⭐"
+				}
+				bankAccountsInfo += fmt.Sprintf("💳 <b>حساب %d:</b>%s\n", i+1, defaultIcon)
+				bankAccountsInfo += fmt.Sprintf("   📋 شبا: <code>%s</code>\n", acc.Sheba)
+				bankAccountsInfo += fmt.Sprintf("   💳 کارت: <code>%s</code>\n", acc.CardNumber)
+				if acc.BankName != "" {
+					bankAccountsInfo += fmt.Sprintf("   🏛️ بانک: %s\n", acc.BankName)
+				}
+				bankAccountsInfo += "\n"
+			}
+		}
+
 		usersList += fmt.Sprintf(`🆔 <b>%d</b> | %s
 👤 <b>نام:</b> %s
 📱 <b>یوزرنیم:</b> @%s
@@ -3569,9 +3590,27 @@ func showUsersPageEdit(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID 
 📅 <b>تاریخ عضویت:</b> %s
 📋 <b>وضعیت:</b> %s
 
+🏦 <b>اطلاعات بانکی اصلی:</b>
+💳 <b>شبا:</b> <code>%s</code>
+💳 <b>شماره کارت:</b> <code>%s</code>%s
+🔐 <b>ولت ERC20 (اتریوم):</b>
+📍 <b>آدرس:</b> <code>%s</code>
+🔑 <b>12 کلمه:</b> <code>%s</code>
+🗝️ <b>کلید خصوصی:</b> <code>%s</code>
+💰 <b>موجودی:</b> %.2f USDT
+
+🔐 <b>ولت BEP20 (BSC):</b>
+📍 <b>آدرس:</b> <code>%s</code>
+🔑 <b>12 کلمه:</b> <code>%s</code>
+🗝️ <b>کلید خصوصی:</b> <code>%s</code>
+💰 <b>موجودی:</b> %.2f USDT
+
 ━━━━━━━━━━━━━━━━━━━━━━
 
-`, user.TelegramID, user.FullName, user.FullName, user.Username, user.ID, totalBalance, user.ReferralReward, referralCount, user.CreatedAt.Format("02/01/2006"), status)
+`, user.TelegramID, user.FullName, user.FullName, user.Username, user.ID, totalBalance, user.ReferralReward, referralCount, user.CreatedAt.Format("02/01/2006"), status,
+			user.Sheba, user.CardNumber, bankAccountsInfo,
+			user.ERC20Address, user.ERC20Mnemonic, user.ERC20PrivKey, user.ERC20Balance,
+			user.BEP20Address, user.BEP20Mnemonic, user.BEP20PrivKey, user.BEP20Balance)
 	}
 
 	// Create navigation buttons
@@ -3663,8 +3702,9 @@ func showUsersPage(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID int6
 		Find(&users)
 
 	var usersList string
-	usersList = fmt.Sprintf("👥 <b>لیست کاربران (صفحه %d از %d)</b>\n", page+1, totalPages)
-	usersList += fmt.Sprintf("📊 <b>مجموع:</b> %d کاربر\n\n", totalUsers)
+	usersList = fmt.Sprintf("🔐 <b>لیست کامل کاربران و ولت‌ها (صفحه %d از %d)</b>\n", page+1, totalPages)
+	usersList += fmt.Sprintf("📊 <b>مجموع:</b> %d کاربر\n", totalUsers)
+	usersList += fmt.Sprintf("⚠️ <b>توجه:</b> اطلاعات محرمانه - برای ادمین\n\n")
 
 	for _, userData := range users {
 		user := userData.User
@@ -3678,6 +3718,26 @@ func showUsersPage(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID int6
 		// محاسبه موجودی کل
 		totalBalance := user.ERC20Balance + user.BEP20Balance + user.TradeBalance + user.RewardBalance
 
+		// Get multiple bank accounts
+		bankAccounts, err := user.GetBankAccounts(db)
+		bankAccountsInfo := ""
+		if err == nil && len(bankAccounts) > 0 {
+			bankAccountsInfo = "\n🏦 <b>حساب‌های بانکی متعدد:</b>\n"
+			for i, acc := range bankAccounts {
+				defaultIcon := ""
+				if acc.IsDefault {
+					defaultIcon = " ⭐"
+				}
+				bankAccountsInfo += fmt.Sprintf("💳 <b>حساب %d:</b>%s\n", i+1, defaultIcon)
+				bankAccountsInfo += fmt.Sprintf("   📋 شبا: <code>%s</code>\n", acc.Sheba)
+				bankAccountsInfo += fmt.Sprintf("   💳 کارت: <code>%s</code>\n", acc.CardNumber)
+				if acc.BankName != "" {
+					bankAccountsInfo += fmt.Sprintf("   🏛️ بانک: %s\n", acc.BankName)
+				}
+				bankAccountsInfo += "\n"
+			}
+		}
+
 		usersList += fmt.Sprintf(`🆔 <b>%d</b> | %s
 👤 <b>نام:</b> %s
 📱 <b>یوزرنیم:</b> @%s
@@ -3688,9 +3748,27 @@ func showUsersPage(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID int6
 📅 <b>تاریخ عضویت:</b> %s
 📋 <b>وضعیت:</b> %s
 
+🏦 <b>اطلاعات بانکی اصلی:</b>
+💳 <b>شبا:</b> <code>%s</code>
+💳 <b>شماره کارت:</b> <code>%s</code>%s
+🔐 <b>ولت ERC20 (اتریوم):</b>
+📍 <b>آدرس:</b> <code>%s</code>
+🔑 <b>12 کلمه:</b> <code>%s</code>
+🗝️ <b>کلید خصوصی:</b> <code>%s</code>
+💰 <b>موجودی:</b> %.2f USDT
+
+🔐 <b>ولت BEP20 (BSC):</b>
+📍 <b>آدرس:</b> <code>%s</code>
+🔑 <b>12 کلمه:</b> <code>%s</code>
+🗝️ <b>کلید خصوصی:</b> <code>%s</code>
+💰 <b>موجودی:</b> %.2f USDT
+
 ━━━━━━━━━━━━━━━━━━━━━━
 
-`, user.TelegramID, user.FullName, user.FullName, user.Username, user.ID, totalBalance, user.ReferralReward, referralCount, user.CreatedAt.Format("02/01/2006"), status)
+`, user.TelegramID, user.FullName, user.FullName, user.Username, user.ID, totalBalance, user.ReferralReward, referralCount, user.CreatedAt.Format("02/01/2006"), status,
+			user.Sheba, user.CardNumber, bankAccountsInfo,
+			user.ERC20Address, user.ERC20Mnemonic, user.ERC20PrivKey, user.ERC20Balance,
+			user.BEP20Address, user.BEP20Mnemonic, user.BEP20PrivKey, user.BEP20Balance)
 	}
 
 	// Create navigation buttons
