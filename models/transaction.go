@@ -30,17 +30,18 @@ type TradeResult struct {
 // ... existing code ...
 
 type Transaction struct {
-	ID         uint   `gorm:"primaryKey"`
-	UserID     uint   `gorm:"index"`
-	Type       string // deposit or withdraw
-	Network    string // ERC20 or BEP20
-	Amount     float64
-	TxHash     string `gorm:"size:128"`
-	Status     string // pending, confirmed, failed
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
-	DeletedAt  gorm.DeletedAt `gorm:"index"`
-	TradeCount int            `gorm:"default:0"` // تعداد دفعات ترید برای این تراکنش
+	ID            uint   `gorm:"primaryKey"`
+	UserID        uint   `gorm:"index"`
+	Type          string // deposit or withdraw
+	Network       string // ERC20 or BEP20
+	Amount        float64
+	TxHash        string `gorm:"size:128"`
+	Status        string // pending, approved, completed, failed
+	BankAccountID *uint  `gorm:"index"` // ID حساب بانکی انتخابی برای برداشت
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	DeletedAt     gorm.DeletedAt `gorm:"index"`
+	TradeCount    int            `gorm:"default:0"` // تعداد دفعات ترید برای این تراکنش
 }
 
 // Etherscan Multichain API endpoint

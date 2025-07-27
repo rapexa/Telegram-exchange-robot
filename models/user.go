@@ -5,6 +5,7 @@ import (
 	"log"
 	"regexp"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -138,4 +139,75 @@ func ValidateCardNumber(cardNumber string) bool {
 	pattern := `^\d{16}$`
 	matched, _ := regexp.MatchString(pattern, cardNumber)
 	return matched
+}
+
+// BankAccount represents multiple bank accounts for users
+type BankAccount struct {
+	ID         uint   `gorm:"primaryKey"`
+	UserID     uint   `gorm:"index;not null"`
+	Sheba      string `gorm:"size:32;not null"`
+	CardNumber string `gorm:"size:32;not null"`
+	BankName   string `gorm:"size:100"`      // نام بانک (اختیاری)
+	IsDefault  bool   `gorm:"default:false"` // آیا پیش‌فرض است؟
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
+// User relation method
+func (u *User) GetBankAccounts(db *gorm.DB) ([]BankAccount, error) {
+	var accounts []BankAccount
+	err := db.Where("user_id = ?", u.ID).Order("is_default DESC, created_at ASC").Find(&accounts).Error
+	return accounts, err
+}
+
+// Get default bank account
+func (u *User) GetDefaultBankAccount(db *gorm.DB) (*BankAccount, error) {
+	var account BankAccount
+	err := db.Where("user_id = ? AND is_default = ?", u.ID, true).First(&account).Error
+	if err != nil {
+		return nil, err
+	}
+	return &account, nil
+}
+
+// Set an account as default (and unset others)
+func SetDefaultBankAccount(db *gorm.DB, userID uint, accountID uint) error {
+	// First, unset all other accounts as default
+	if err := db.Model(&BankAccount{}).Where("user_id = ?", userID).Update("is_default", false).Error; err != nil {
+		return err
+	}
+
+	// Then set the specified account as default
+	return db.Model(&BankAccount{}).Where("id = ? AND user_id = ?", accountID, userID).Update("is_default", true).Error
+}
+
+// Add a new bank account
+func AddBankAccount(db *gorm.DB, userID uint, sheba, cardNumber, bankName string, isDefault bool) (*BankAccount, error) {
+	// If this is set as default, unset all others first
+	if isDefault {
+		db.Model(&BankAccount{}).Where("user_id = ?", userID).Update("is_default", false)
+	}
+
+	account := BankAccount{
+		UserID:     userID,
+		Sheba:      sheba,
+		CardNumber: cardNumber,
+		BankName:   bankName,
+		IsDefault:  isDefault,
+	}
+
+	err := db.Create(&account).Error
+	return &account, err
+}
+
+// Delete a bank account
+func DeleteBankAccount(db *gorm.DB, userID uint, accountID uint) error {
+	return db.Where("id = ? AND user_id = ?", accountID, userID).Delete(&BankAccount{}).Error
+}
+
+// Check if a sheba/card combination already exists for user
+func IsBankAccountExists(db *gorm.DB, userID uint, sheba, cardNumber string) bool {
+	var count int64
+	db.Model(&BankAccount{}).Where("user_id = ? AND (sheba = ? OR card_number = ?)", userID, sheba, cardNumber).Count(&count)
+	return count > 0
 }

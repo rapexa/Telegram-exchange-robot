@@ -153,6 +153,10 @@ func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 	case "⬅️ بازگشت به پنل ادمین":
 		showAdminMenu(bot, db, msg.Chat.ID)
 		return
+	case "❌ لغو و بازگشت":
+		clearRegState(msg.From.ID)
+		showBankAccountsManagement(bot, db, msg.Chat.ID, msg.From.ID)
+		return
 	}
 
 	if adminBroadcastState[msg.From.ID] == "confirm_broadcast" {
@@ -675,6 +679,7 @@ Mnemonic: %s
 				}
 
 				state := adminBroadcastState[userID]
+				// مرحله 2: تایید اولیه درخواست (بدون کسر موجودی)
 				if strings.HasPrefix(data, "approve_withdraw_") {
 					txIDstr := strings.TrimPrefix(data, "approve_withdraw_")
 					txID, _ := strconv.Atoi(txIDstr)
@@ -682,9 +687,77 @@ Mnemonic: %s
 					if err := db.First(&tx, txID).Error; err == nil && tx.Status == "pending" {
 						var user models.User
 						db.First(&user, tx.UserID)
+
+						// مرحله 2: فقط تایید درخواست (بدون کسر موجودی)
+						tx.Status = "approved"
+						db.Save(&tx)
+
+						// Get bank account info for toman withdrawals
+						var bankMsg string
+						if tx.Network == "TOMAN" && tx.BankAccountID != nil {
+							var bankAccount models.BankAccount
+							if err := db.First(&bankAccount, *tx.BankAccountID).Error; err == nil {
+								bankName := bankAccount.BankName
+								if bankName == "" {
+									bankName = "نامشخص"
+								}
+								bankMsg = fmt.Sprintf("\n🏦 حساب انتخابی: %s\n📄 شبا: %s\n💳 کارت: %s",
+									bankName, bankAccount.Sheba, bankAccount.CardNumber)
+							}
+						}
+
+						// پیام مرحله 2 به کاربر: "درخواست بررسی شد"
+						var userMsg string
+						if tx.Network == "TOMAN" {
+							usdtRate, _ := getUSDTRate(db)
+							tomanAmount := tx.Amount * usdtRate
+							userMsg = fmt.Sprintf(`✅ <b>درخواست شما بررسی شد</b>
+
+💵 <b>مبلغ:</b> %s تومان
+💰 <b>معادل:</b> %.4f USDT
+
+%s
+
+📢 <b>درخواست برداشت تایید شد و به زودی به حساب بانکی شما واریز میشود</b>
+
+⏳ منتظر اطلاع رسانی پرداخت باشید.`, formatToman(tomanAmount), tx.Amount, bankMsg)
+						} else {
+							userMsg = fmt.Sprintf("✅ درخواست برداشت %.4f USDT بررسی و تایید شد.", tx.Amount)
+						}
+
+						bot.Send(tgbotapi.NewMessage(user.TelegramID, userMsg))
+
+						// آپدیت دکمه‌های ادمین - حالا فقط "پرداخت شد" نمایش می‌دهد
+						adminBtns := tgbotapi.NewInlineKeyboardMarkup(
+							tgbotapi.NewInlineKeyboardRow(
+								tgbotapi.NewInlineKeyboardButtonData("💰 پرداخت شد", fmt.Sprintf("complete_withdraw_%d", tx.ID)),
+							),
+						)
+
+						editMsg := tgbotapi.NewEditMessageReplyMarkup(
+							update.CallbackQuery.Message.Chat.ID,
+							update.CallbackQuery.Message.MessageID,
+							adminBtns,
+						)
+						bot.Send(editMsg)
+
+						bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "✅ تایید شد"))
+					}
+					continue
+				}
+
+				// مرحله 3: کسر موجودی و تکمیل پرداخت
+				if strings.HasPrefix(data, "complete_withdraw_") {
+					txIDstr := strings.TrimPrefix(data, "complete_withdraw_")
+					txID, _ := strconv.Atoi(txIDstr)
+					var tx models.Transaction
+					if err := db.First(&tx, txID).Error; err == nil && tx.Status == "approved" {
+						var user models.User
+						db.First(&user, tx.UserID)
 						amount := tx.Amount
 						remaining := amount
 
+						// کسر موجودی (همان منطق قبلی)
 						// 1. کم کردن از پاداش
 						if user.RewardBalance >= remaining {
 							user.RewardBalance -= remaining
@@ -748,14 +821,44 @@ Mnemonic: %s
 							continue
 						}
 
+						// تکمیل پرداخت
 						db.Save(&user)
-						tx.Status = "confirmed"
+						tx.Status = "completed"
 						db.Save(&tx)
-						bot.Send(tgbotapi.NewMessage(user.TelegramID, "✅ برداشت شما تایید و پرداخت شد."))
-						bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "پرداخت شد"))
+
+						// پیام مرحله 3 به کاربر: "درخواست پرداخت شد"
+						var userMsg string
+						if tx.Network == "TOMAN" {
+							usdtRate, _ := getUSDTRate(db)
+							tomanAmount := tx.Amount * usdtRate
+							userMsg = fmt.Sprintf(`🎉 <b>درخواست شما پرداخت شد</b>
+
+💵 <b>مبلغ:</b> %s تومان
+💰 <b>معادل:</b> %.4f USDT
+
+✅ <b>درخواست برداشت شما کامل شد و به حساب شما پرداخت شد</b>
+
+💡 مبلغ به حساب بانکی انتخابی شما واریز شده است.`, formatToman(tomanAmount), tx.Amount)
+						} else {
+							userMsg = fmt.Sprintf("🎉 درخواست برداشت %.4f USDT کامل شد و پرداخت شد.", tx.Amount)
+						}
+
+						bot.Send(tgbotapi.NewMessage(user.TelegramID, userMsg))
+
+						// حذف دکمه‌ها از پیام ادمین
+						editMsg := tgbotapi.NewEditMessageReplyMarkup(
+							update.CallbackQuery.Message.Chat.ID,
+							update.CallbackQuery.Message.MessageID,
+							tgbotapi.NewInlineKeyboardMarkup(),
+						)
+						bot.Send(editMsg)
+
+						bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "💰 پرداخت کامل شد"))
 					}
 					continue
 				}
+
+				// رد درخواست
 				if strings.HasPrefix(data, "reject_withdraw_") {
 					txIDstr := strings.TrimPrefix(data, "reject_withdraw_")
 					txID, _ := strconv.Atoi(txIDstr)
@@ -769,7 +872,18 @@ Mnemonic: %s
 							user.ReferralReward += tx.Amount
 							db.Save(&user)
 						}
-						bot.Send(tgbotapi.NewMessage(user.TelegramID, fmt.Sprintf("❌ برداشت شما به مبلغ %.2f USDT لغو شد و مبلغ به حساب شما برگشت.", tx.Amount)))
+
+						// پیام رد به کاربر
+						var userMsg string
+						if tx.Network == "TOMAN" {
+							usdtRate, _ := getUSDTRate(db)
+							tomanAmount := tx.Amount * usdtRate
+							userMsg = fmt.Sprintf("❌ درخواست برداشت %s تومان (%.4f USDT) رد شد.", formatToman(tomanAmount), tx.Amount)
+						} else {
+							userMsg = fmt.Sprintf("❌ درخواست برداشت %.4f USDT رد شد.", tx.Amount)
+						}
+
+						bot.Send(tgbotapi.NewMessage(user.TelegramID, userMsg))
 						bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "رد شد"))
 					}
 					continue
@@ -1249,67 +1363,29 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 			return true
 		}
 
-		// Create pending transaction (store as USDT for internal consistency)
-		tx := models.Transaction{
-			UserID: user.ID,
-			Type:   "withdraw",
-			Amount: usdtAmount, // Store in USDT
-			Status: "pending",
+		// دریافت حساب‌های بانکی کاربر
+		accounts, err := user.GetBankAccounts(db)
+		if err != nil || len(accounts) == 0 {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, `😔 <b>هیچ حساب بانکی ندارید!</b>
+
+برای برداشت، ابتدا باید یک حساب بانکی اضافه کنید.
+
+🏦 از منو کیف پول > مدیریت حساب‌های بانکی > اضافه کردن حساب جدید استفاده کنید.`))
+			clearRegState(userID)
+			showWalletMenu(bot, db, msg.Chat.ID, userID)
+			return true
 		}
-		db.Create(&tx)
 
-		// Notify admin with both Toman and USDT amounts
-		adminMsg := fmt.Sprintf(`💸 <b>درخواست برداشت تومانی جدید</b>
+		// ذخیره اطلاعات برداشت برای مرحله بعد
+		saveRegTemp(userID, "withdraw_toman_amount", fmt.Sprintf("%.2f", tomanAmount))
+		saveRegTemp(userID, "withdraw_usdt_amount", fmt.Sprintf("%.6f", usdtAmount))
+		saveRegTemp(userID, "withdraw_rate", fmt.Sprintf("%.2f", usdtRate))
 
-👤 <b>کاربر:</b> %s (آیدی: <code>%d</code>)
-💵 <b>مبلغ تومانی:</b> <b>%s تومان</b>
-💰 <b>معادل USDT:</b> <b>%.4f USDT</b>
-📊 <b>نرخ:</b> %s تومان
+		// تغییر state برای انتخاب حساب بانکی
+		setRegState(userID, "withdraw_select_account")
 
-📋 <b>موجودی کاربر:</b>
-• 🔵 ERC20: %.4f USDT
-• 🟡 BEP20: %.4f USDT  
-• 📈 ترید: %.4f USDT
-• 🎁 پاداش: %.4f USDT
-• 💰 تومان: %s (معادل %.4f USDT)
-• 💎 مجموع: %.4f USDT
-
-برای پرداخت <b>%s تومان</b> به کاربر، یکی از دکمه‌های زیر را انتخاب کنید.`,
-			user.FullName, user.TelegramID,
-			formatToman(tomanAmount), usdtAmount, formatToman(usdtRate),
-			user.ERC20Balance, user.BEP20Balance, user.TradeBalance, user.RewardBalance,
-			formatToman(user.TomanBalance), tomanEquivalentUSDT, totalAvailableUSDT,
-			formatToman(tomanAmount))
-
-		adminBtns := tgbotapi.NewInlineKeyboardMarkup(
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("💰 پرداخت شد", fmt.Sprintf("approve_withdraw_%d", tx.ID)),
-				tgbotapi.NewInlineKeyboardButtonData("❌ رد شد", fmt.Sprintf("reject_withdraw_%d", tx.ID)),
-			),
-		)
-		msgToAdmin := tgbotapi.NewMessage(adminUserID, adminMsg)
-		msgToAdmin.ParseMode = "HTML"
-		msgToAdmin.ReplyMarkup = adminBtns
-		bot.Send(msgToAdmin)
-
-		// Confirm to user
-		confirmMsg := fmt.Sprintf(`✅ <b>درخواست برداشت ثبت شد</b>
-
-💵 <b>مبلغ:</b> %s تومان
-💰 <b>معادل:</b> %.4f USDT
-📊 <b>نرخ:</b> %s تومان
-
-⏳ درخواست شما در انتظار تایید ادمین است.`,
-			formatToman(tomanAmount), usdtAmount, formatToman(usdtRate))
-
-		confirmMsgToUser := tgbotapi.NewMessage(msg.Chat.ID, confirmMsg)
-		confirmMsgToUser.ParseMode = "HTML"
-		bot.Send(confirmMsgToUser)
-
-		clearRegState(userID)
-
-		// بازگشت به منوی کیف پول
-		showWalletMenu(bot, db, msg.Chat.ID, userID)
+		// نمایش لیست حساب‌های بانکی
+		showBankAccountSelection(bot, db, msg.Chat.ID, userID, tomanAmount, usdtAmount, usdtRate)
 		return true
 	}
 
@@ -1620,7 +1696,7 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 			// Update user bank info in database
 			user, err := getUserByTelegramID(db, userID)
 			if err != nil || user == nil {
-				bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "😔 متاسفانه مشکلی پیش اومد! با پشتیبانی تماس بگیر."))
+				bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "😔 متاسفانه مشکلی در ذخیره اطلاعات پیش اومد! لطفاً دوباره تلاش کن."))
 				clearRegState(userID)
 				return true
 			}
@@ -1658,6 +1734,483 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 
 		// اگر هیچ گزینه معتبری انتخاب نشد
 		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "😅 لطفاً یکی از گزینه‌های موجود را انتخاب کن!"))
+		return true
+	}
+
+	// --- Add New Bank Account States ---
+	if state == "add_new_bank_sheba" {
+		if msg.Text == "❌ لغو و بازگشت" {
+			clearRegState(userID)
+			showBankAccountsManagement(bot, db, msg.Chat.ID, userID)
+			return true
+		}
+
+		// Validate Sheba format
+		if !models.ValidateSheba(msg.Text) {
+			errorMsg := `😊 <b>شماره شبا کمی اشتباه شده!</b>
+
+نگران نباش، همه جا پیش میاد!
+
+🏦 <b>مثال درست:</b> IR520630144905901219088011
+
+💡 <b>نکته‌های مهم:</b>
+• حتماً با IR شروع کن
+• بعدش ۲۴ تا رقم بذار
+• هیچ فاصله یا خط تیره نذار
+
+🔄 یه بار دیگه امتحان کن! 😉`
+
+			message := tgbotapi.NewMessage(msg.Chat.ID, errorMsg)
+			message.ParseMode = "HTML"
+			bot.Send(message)
+			return true
+		}
+
+		// بررسی تکراری نبودن شبا
+		user, err := getUserByTelegramID(db, userID)
+		if err != nil || user == nil {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "😔 متاسفانه مشکلی پیش اومد!"))
+			clearRegState(userID)
+			return true
+		}
+
+		if models.IsBankAccountExists(db, user.ID, msg.Text, "") {
+			errorMsg := `⚠️ <b>شماره شبا تکراری!</b>
+
+این شماره شبا قبلاً برای شما ثبت شده است.
+
+🔍 لطفاً شماره شبا متفاوتی وارد کنید یا از منوی "📋 مشاهده همه حساب‌ها" اطلاعات موجود را بررسی کنید.
+
+🔄 یه شماره شبا دیگه امتحان کن! 😊`
+
+			message := tgbotapi.NewMessage(msg.Chat.ID, errorMsg)
+			message.ParseMode = "HTML"
+			bot.Send(message)
+			return true
+		}
+
+		// Save new sheba, ask for card number
+		saveRegTemp(userID, "new_sheba", msg.Text)
+		setRegState(userID, "add_new_bank_card")
+
+		cardMsg := `✅ <b>مرحله ۱ تکمیل شد!</b>
+
+🏦 شماره شبا جدید: <code>%s</code>
+
+📝 <b>مرحله ۲: شماره کارت</b>
+
+لطفاً شماره کارت بانکی این حساب را وارد کنید:
+
+💡 <b>مثال درست:</b> 6037998215325563
+
+⚠️ <b>نکته‌های مهم:</b>
+• حتماً ۱۶ تا رقم باشه
+• هیچ فاصله یا خط تیره نذار
+• فقط عدد بنویس
+• حتماً شماره کارت همون حسابی که شباش رو دادی`
+
+		message := tgbotapi.NewMessage(msg.Chat.ID, fmt.Sprintf(cardMsg, msg.Text))
+		message.ParseMode = "HTML"
+		cancelKeyboard := tgbotapi.NewReplyKeyboard(
+			tgbotapi.NewKeyboardButtonRow(
+				tgbotapi.NewKeyboardButton("❌ لغو و بازگشت"),
+			),
+		)
+		cancelKeyboard.ResizeKeyboard = true
+		message.ReplyMarkup = cancelKeyboard
+		bot.Send(message)
+		return true
+	} else if state == "add_new_bank_card" {
+		if msg.Text == "❌ لغو و بازگشت" {
+			clearRegState(userID)
+			showBankAccountsManagement(bot, db, msg.Chat.ID, userID)
+			return true
+		}
+
+		// Validate card number format
+		if !models.ValidateCardNumber(msg.Text) {
+			errorMsg := `💳 <b>شماره کارت کمی اشتباهه!</b>
+
+بیا دوباره درستش کنیم!
+
+💳 <b>مثال درست:</b> 6037998215325563
+
+💡 <b>نکته‌های مهم:</b>
+• حتماً ۱۶ تا رقم باشه
+• هیچ فاصله یا خط تیره نذار
+• فقط عدد بنویس
+
+🔄 الان دوباره تست کن! 🙂`
+
+			message := tgbotapi.NewMessage(msg.Chat.ID, errorMsg)
+			message.ParseMode = "HTML"
+			bot.Send(message)
+			return true
+		}
+
+		// بررسی تکراری نبودن کارت
+		user, err := getUserByTelegramID(db, userID)
+		if err != nil || user == nil {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "😔 متاسفانه مشکلی پیش اومد!"))
+			clearRegState(userID)
+			return true
+		}
+
+		if models.IsBankAccountExists(db, user.ID, "", msg.Text) {
+			errorMsg := `⚠️ <b>شماره کارت تکراری!</b>
+
+این شماره کارت قبلاً برای شما ثبت شده است.
+
+🔍 لطفاً شماره کارت متفاوتی وارد کنید یا از منوی "📋 مشاهده همه حساب‌ها" اطلاعات موجود را بررسی کنید.
+
+🔄 یه شماره کارت دیگه امتحان کن! 😊`
+
+			message := tgbotapi.NewMessage(msg.Chat.ID, errorMsg)
+			message.ParseMode = "HTML"
+			bot.Send(message)
+			return true
+		}
+
+		// Save new card number, ask for bank name (optional)
+		saveRegTemp(userID, "new_card", msg.Text)
+		setRegState(userID, "add_new_bank_name")
+
+		regTemp.RLock()
+		info := regTemp.m[userID]
+		regTemp.RUnlock()
+
+		bankNameMsg := fmt.Sprintf(`✅ <b>مرحله ۲ تکمیل شد!</b>
+
+💳 شماره کارت: <code>%s</code>
+
+📝 <b>مرحله ۳: نام بانک (اختیاری)</b>
+
+لطفاً نام بانک این حساب را وارد کنید یا دکمه "رد کردن" را بزنید:
+
+💡 <b>مثال‌ها:</b> ملی، صادرات، پارسیان، پاسارگاد
+
+⚠️ این فیلد اختیاری است و فقط برای شناسایی آسان‌تر حساب‌ها استفاده می‌شود.`,
+			info["new_card"])
+
+		keyboard := tgbotapi.NewReplyKeyboard(
+			tgbotapi.NewKeyboardButtonRow(
+				tgbotapi.NewKeyboardButton("⏭️ رد کردن و ادامه"),
+			),
+			tgbotapi.NewKeyboardButtonRow(
+				tgbotapi.NewKeyboardButton("❌ لغو و بازگشت"),
+			),
+		)
+		keyboard.ResizeKeyboard = true
+
+		message := tgbotapi.NewMessage(msg.Chat.ID, bankNameMsg)
+		message.ParseMode = "HTML"
+		message.ReplyMarkup = keyboard
+		bot.Send(message)
+		return true
+	} else if state == "add_new_bank_name" {
+		if msg.Text == "❌ لغو و بازگشت" {
+			clearRegState(userID)
+			showBankAccountsManagement(bot, db, msg.Chat.ID, userID)
+			return true
+		}
+
+		bankName := ""
+		if msg.Text != "⏭️ رد کردن و ادامه" {
+			bankName = strings.TrimSpace(msg.Text)
+			// Validate bank name length
+			if len(bankName) > 100 {
+				bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "😅 نام بانک خیلی طولانیه! حداکثر ۱۰۰ کاراکتر مجاز است."))
+				return true
+			}
+		}
+
+		// Save bank name and show confirmation
+		saveRegTemp(userID, "new_bank_name", bankName)
+		setRegState(userID, "add_new_bank_confirm")
+
+		regTemp.RLock()
+		info := regTemp.m[userID]
+		regTemp.RUnlock()
+
+		bankNameDisplay := info["new_bank_name"]
+		if bankNameDisplay == "" {
+			bankNameDisplay = "نامشخص"
+		}
+
+		confirmMsg := fmt.Sprintf(`✅ <b>تایید نهایی حساب جدید</b>
+
+📋 <b>اطلاعات حساب جدید:</b>
+• شماره شبا: <code>%s</code>
+• شماره کارت: <code>%s</code>
+• نام بانک: %s
+
+⚠️ <b>نکات مهم:</b>
+• این حساب به لیست حساب‌های شما اضافه خواهد شد
+• می‌توانید بعداً آن را به عنوان پیش‌فرض تنظیم کنید
+• شماره شبا و کارت باید از یک حساب/کارت واحد باشند
+
+✅ اگر اطلاعات درست است، دکمه تایید را بزنید.`,
+			info["new_sheba"], info["new_card"], bankNameDisplay)
+
+		keyboard := tgbotapi.NewReplyKeyboard(
+			tgbotapi.NewKeyboardButtonRow(
+				tgbotapi.NewKeyboardButton("✅ تایید و ذخیره حساب"),
+			),
+			tgbotapi.NewKeyboardButtonRow(
+				tgbotapi.NewKeyboardButton("❌ لغو و بازگشت"),
+			),
+		)
+		keyboard.ResizeKeyboard = true
+
+		message := tgbotapi.NewMessage(msg.Chat.ID, confirmMsg)
+		message.ParseMode = "HTML"
+		message.ReplyMarkup = keyboard
+		bot.Send(message)
+		return true
+	} else if state == "add_new_bank_confirm" {
+		if msg.Text == "❌ لغو و بازگشت" {
+			clearRegState(userID)
+			showBankAccountsManagement(bot, db, msg.Chat.ID, userID)
+			return true
+		}
+
+		if msg.Text == "✅ تایید و ذخیره حساب" {
+			regTemp.RLock()
+			info := regTemp.m[userID]
+			regTemp.RUnlock()
+
+			// Get user
+			user, err := getUserByTelegramID(db, userID)
+			if err != nil || user == nil {
+				bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "😔 متاسفانه مشکلی پیش اومد! با پشتیبانی تماس بگیر."))
+				clearRegState(userID)
+				return true
+			}
+
+			// دریافت حساب‌های موجود
+			existingAccounts, err := user.GetBankAccounts(db)
+			if err != nil {
+				bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "😔 مشکلی در دریافت اطلاعات حساب‌ها پیش اومد!"))
+				clearRegState(userID)
+				return true
+			}
+
+			// تعیین اینکه آیا این اولین حساب است (پیش‌فرض شود)
+			isDefault := len(existingAccounts) == 0
+
+			// اضافه کردن حساب جدید
+			newAccount, err := models.AddBankAccount(db, user.ID,
+				info["new_sheba"],
+				info["new_card"],
+				info["new_bank_name"],
+				isDefault)
+
+			if err != nil {
+				bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "😔 متاسفانه مشکلی در ذخیره حساب پیش اومد! لطفاً دوباره تلاش کن."))
+				clearRegState(userID)
+				return true
+			}
+
+			clearRegState(userID)
+
+			// پیام موفقیت
+			bankNameDisplay := newAccount.BankName
+			if bankNameDisplay == "" {
+				bankNameDisplay = "نامشخص"
+			}
+
+			var successMsg string
+			if isDefault {
+				successMsg = fmt.Sprintf(`🎉 <b>اولین حساب بانکی با موفقیت اضافه شد!</b>
+
+✅ <b>حساب پیش‌فرض شما:</b>
+• شماره شبا: <code>%s</code>
+• شماره کارت: <code>%s</code>
+• نام بانک: %s
+
+🚀 <b>تبریک!</b> حالا می‌توانید:
+• برداشت کنید
+• پاداش‌ها را دریافت کنید
+• از تمام امکانات ربات استفاده کنید
+
+💡 این حساب به عنوان پیش‌فرض تنظیم شد.`,
+					newAccount.Sheba, newAccount.CardNumber, bankNameDisplay)
+			} else {
+				successMsg = fmt.Sprintf(`🎉 <b>حساب جدید با موفقیت اضافه شد!</b>
+
+✅ <b>حساب جدید شما:</b>
+• شماره شبا: <code>%s</code>
+• شماره کارت: <code>%s</code>
+• نام بانک: %s
+
+💡 <b>نکات مهم:</b>
+• حساب به لیست حساب‌های شما اضافه شد
+• برای تنظیم به عنوان پیش‌فرض از منوی "🎯 تغییر حساب پیش‌فرض" استفاده کنید
+• تعداد کل حساب‌های شما: %d`,
+					newAccount.Sheba, newAccount.CardNumber, bankNameDisplay, len(existingAccounts)+1)
+			}
+
+			message := tgbotapi.NewMessage(msg.Chat.ID, successMsg)
+			message.ParseMode = "HTML"
+			bot.Send(message)
+
+			// بازگشت به منوی مدیریت حساب‌ها
+			showBankAccountsManagement(bot, db, msg.Chat.ID, userID)
+			return true
+		}
+
+		// اگر هیچ گزینه معتبری انتخاب نشد
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "😅 لطفاً یکی از گزینه‌های موجود را انتخاب کن!"))
+		return true
+	}
+
+	// --- Withdraw Bank Account Selection State ---
+	if state == "withdraw_select_account" {
+		if msg.Text == "❌ لغو برداشت" {
+			clearRegState(userID)
+			showWalletMenu(bot, db, msg.Chat.ID, userID)
+			return true
+		}
+
+		// بررسی انتخاب حساب
+		if !strings.HasPrefix(msg.Text, "🏦 برداشت به حساب ") {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "😅 لطفاً یکی از حساب‌های موجود را انتخاب کنید!"))
+			return true
+		}
+
+		// استخراج شماره حساب
+		accountNumStr := strings.TrimPrefix(msg.Text, "🏦 برداشت به حساب ")
+		accountNum, err := strconv.Atoi(accountNumStr)
+		if err != nil || accountNum <= 0 {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "😔 شماره حساب نامعتبر است!"))
+			return true
+		}
+
+		// دریافت اطلاعات ذخیره شده
+		regTemp.RLock()
+		info := regTemp.m[userID]
+		regTemp.RUnlock()
+
+		tomanAmount, _ := strconv.ParseFloat(info["withdraw_toman_amount"], 64)
+		usdtAmount, _ := strconv.ParseFloat(info["withdraw_usdt_amount"], 64)
+
+		// Get user and accounts
+		user, err := getUserByTelegramID(db, userID)
+		if err != nil || user == nil {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "😔 متاسفانه مشکلی پیش اومد!"))
+			clearRegState(userID)
+			return true
+		}
+
+		// دریافت حساب‌های بانکی
+		accounts, err := user.GetBankAccounts(db)
+		if err != nil || len(accounts) < accountNum {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "😔 حساب مورد نظر یافت نشد!"))
+			clearRegState(userID)
+			return true
+		}
+
+		// انتخاب حساب (منطق 0-based)
+		selectedAccount := accounts[accountNum-1]
+
+		// Create pending transaction با BankAccountID
+		tx := models.Transaction{
+			UserID:        user.ID,
+			Type:          "withdraw",
+			Amount:        usdtAmount, // Store in USDT for internal consistency
+			Status:        "pending",
+			Network:       "TOMAN", // برای تشخیص برداشت تومانی
+			BankAccountID: &selectedAccount.ID,
+		}
+		db.Create(&tx)
+
+		// محاسبه موجودی کل
+		totalUSDTBalance := user.ERC20Balance + user.BEP20Balance + user.TradeBalance + user.RewardBalance
+		usdtRate, _ := getUSDTRate(db)
+		tomanEquivalentUSDT := user.TomanBalance / usdtRate
+		totalAvailableUSDT := totalUSDTBalance + tomanEquivalentUSDT
+
+		// نمایش اطلاعات بانک انتخابی
+		bankName := selectedAccount.BankName
+		if bankName == "" {
+			bankName = "نامشخص"
+		}
+
+		// پیام به ادمین
+		adminMsg := fmt.Sprintf(`💸 <b>درخواست برداشت تومانی جدید</b>
+
+👤 <b>کاربر:</b> %s (آیدی: <code>%d</code>)
+💵 <b>مبلغ تومانی:</b> <b>%s تومان</b>
+💰 <b>معادل USDT:</b> <b>%.4f USDT</b>
+📊 <b>نرخ:</b> %s تومان
+
+🏦 <b>حساب انتخابی کاربر:</b>
+• بانک: %s
+• شماره شبا: <code>%s</code>
+• شماره کارت: <code>%s</code>
+• وضعیت: %s
+
+📋 <b>موجودی کاربر:</b>
+• 🔵 ERC20: %.4f USDT
+• 🟡 BEP20: %.4f USDT  
+• 📈 ترید: %.4f USDT
+• 🎁 پاداش: %.4f USDT
+• 💰 تومان: %s (معادل %.4f USDT)
+• 💎 مجموع: %.4f USDT
+
+برای پرداخت <b>%s تومان</b> به حساب کاربر، یکی از دکمه‌های زیر را انتخاب کنید.`,
+			user.FullName, user.TelegramID,
+			formatToman(tomanAmount), usdtAmount, formatToman(usdtRate),
+			bankName, selectedAccount.Sheba, selectedAccount.CardNumber,
+			func() string {
+				if selectedAccount.IsDefault {
+					return "✅ پیش‌فرض"
+				}
+				return "🔘 معمولی"
+			}(),
+			user.ERC20Balance, user.BEP20Balance, user.TradeBalance, user.RewardBalance,
+			formatToman(user.TomanBalance), tomanEquivalentUSDT, totalAvailableUSDT,
+			formatToman(tomanAmount))
+
+		adminBtns := tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("✅ تایید درخواست", fmt.Sprintf("approve_withdraw_%d", tx.ID)),
+				tgbotapi.NewInlineKeyboardButtonData("❌ رد درخواست", fmt.Sprintf("reject_withdraw_%d", tx.ID)),
+			),
+		)
+		msgToAdmin := tgbotapi.NewMessage(adminUserID, adminMsg)
+		msgToAdmin.ParseMode = "HTML"
+		msgToAdmin.ReplyMarkup = adminBtns
+		bot.Send(msgToAdmin)
+
+		// پیام تایید به کاربر
+		confirmMsg := fmt.Sprintf(`✅ <b>درخواست برداشت ثبت شد</b>
+
+💵 <b>مبلغ:</b> %s تومان
+💰 <b>معادل:</b> %.4f USDT
+📊 <b>نرخ:</b> %s تومان
+
+🏦 <b>حساب انتخابی:</b>
+• بانک: %s
+• شبا: %s***%s
+• کارت: %s***%s
+
+⏳ <b>وضعیت:</b> در انتظار تایید ادمین
+
+💡 بعد از تایید ادمین، مبلغ به حساب انتخابی شما واریز خواهد شد.`,
+			formatToman(tomanAmount), usdtAmount, formatToman(usdtRate),
+			bankName,
+			selectedAccount.Sheba[:8], selectedAccount.Sheba[len(selectedAccount.Sheba)-4:],
+			selectedAccount.CardNumber[:4], selectedAccount.CardNumber[len(selectedAccount.CardNumber)-4:])
+
+		confirmMsgToUser := tgbotapi.NewMessage(msg.Chat.ID, confirmMsg)
+		confirmMsgToUser.ParseMode = "HTML"
+		bot.Send(confirmMsgToUser)
+
+		clearRegState(userID)
+
+		// بازگشت به منوی کیف پول
+		showWalletMenu(bot, db, msg.Chat.ID, userID)
 		return true
 	}
 
@@ -1834,7 +2387,7 @@ func showUserInfo(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, user *models.
 📊 *آمار تراکنش:*
 • کل تراکنش‌ها: %d مورد
 
-🎉 *خوش آمدید!* حالا می‌توانید از تمام خدمات ربات استفاده کنید.`,
+🎉 *خوش آمدید!* حالا می‌توانی از تمام خدمات ربات استفاده کنید.`,
 		user.FullName, user.Username, user.CardNumber, user.Sheba,
 		totalBalance, erc20Balance, bep20Balance,
 		user.ReferralReward, referralCount, totalTransactions)
@@ -1993,11 +2546,32 @@ func handleSubmenuActions(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Messa
 	case "👥 زیرمجموعه‌ها":
 		showReferralList(bot, db, msg)
 		return
-	case "🏦 تغییر اطلاعات بانکی":
-		showBankInfoChangeMenu(bot, db, msg.Chat.ID, userID)
+	case "🏦 مدیریت حساب‌های بانکی":
+		showBankAccountsManagement(bot, db, msg.Chat.ID, userID)
 		return
 	case "✏️ شروع تغییر اطلاعات":
 		startBankInfoUpdate(bot, db, msg.Chat.ID, userID)
+		return
+	case "➕ اضافه کردن حساب جدید":
+		startAddNewBankAccount(bot, db, msg.Chat.ID, userID)
+		return
+	case "📋 مشاهده حساب‌های من":
+		showMyBankAccounts(bot, db, msg.Chat.ID, userID)
+		return
+	case "✏️ تغییر حساب اصلی":
+		startBankInfoUpdate(bot, db, msg.Chat.ID, userID)
+		return
+	case "📋 مشاهده همه حساب‌ها":
+		showAllBankAccounts(bot, db, msg.Chat.ID, userID)
+		return
+	case "🎯 تغییر حساب پیش‌فرض":
+		showSelectDefaultAccount(bot, db, msg.Chat.ID, userID)
+		return
+	case "🗑️ حذف حساب":
+		showDeleteAccountMenu(bot, db, msg.Chat.ID, userID)
+		return
+	case "✅ تایید و ذخیره حساب":
+		// This will be handled by registration state machine
 		return
 	case "💰 تبدیل USDT به تومان":
 		handleUSDTToTomanConversion(bot, db, msg.Chat.ID, userID)
@@ -2005,7 +2579,41 @@ func handleSubmenuActions(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Messa
 	case "💱 نرخ لحظه‌ای":
 		showSimpleCurrentRate(bot, db, msg.Chat.ID)
 		return
+	case "⏭️ رد کردن و ادامه":
+		// This will be handled by registration state machine
+		return
 	default:
+		// Check for dynamic buttons
+		// انتخاب حساب پیش‌فرض
+		if strings.HasPrefix(msg.Text, "✅ انتخاب حساب ") || strings.HasPrefix(msg.Text, "🔘 انتخاب حساب ") {
+			handleSelectDefaultAccount(bot, db, msg.Chat.ID, userID, msg.Text)
+			return
+		}
+
+		// حذف حساب
+		if strings.HasPrefix(msg.Text, "🗑️ حذف حساب ") {
+			handleDeleteAccount(bot, db, msg.Chat.ID, userID, msg.Text)
+			return
+		}
+
+		// تایید حذف حساب
+		if strings.HasPrefix(msg.Text, "✅ بله، حساب ") && strings.Contains(msg.Text, " را حذف کن") {
+			handleConfirmDeleteAccount(bot, db, msg.Chat.ID, userID)
+			return
+		}
+
+		// انتخاب حساب برای برداشت
+		if strings.HasPrefix(msg.Text, "🏦 برداشت به حساب ") {
+			// This will be handled by registration state machine
+			return
+		}
+
+		if msg.Text == "❌ نه، لغو کن" {
+			clearRegState(userID)
+			showBankAccountsManagement(bot, db, msg.Chat.ID, userID)
+			return
+		}
+
 		showMainMenu(bot, db, msg.Chat.ID, userID)
 	}
 }
@@ -2108,7 +2716,7 @@ func showWalletMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int6
 			tgbotapi.NewKeyboardButton("💳 واریز USDT"),
 		),
 		tgbotapi.NewKeyboardButtonRow(
-			tgbotapi.NewKeyboardButton("🏦 تغییر اطلاعات بانکی"),
+			tgbotapi.NewKeyboardButton("🏦 مدیریت حساب‌های بانکی"),
 		),
 		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("⬅️ بازگشت"),
@@ -2999,8 +3607,8 @@ func showAllPendingWithdrawals(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) 
 		msgText := fmt.Sprintf("%s - %.2f USDT\nکاربر: %s (%d)\nتاریخ: %s", typeFa, tx.Amount, user.FullName, user.TelegramID, tx.CreatedAt.Format("02/01 15:04"))
 		adminBtns := tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("پرداخت شد", fmt.Sprintf("approve_withdraw_%d", tx.ID)),
-				tgbotapi.NewInlineKeyboardButtonData("رد شد", fmt.Sprintf("reject_withdraw_%d", tx.ID)),
+				tgbotapi.NewInlineKeyboardButtonData("✅ تایید درخواست", fmt.Sprintf("approve_withdraw_%d", tx.ID)),
+				tgbotapi.NewInlineKeyboardButtonData("❌ رد درخواست", fmt.Sprintf("reject_withdraw_%d", tx.ID)),
 			),
 		)
 		m := tgbotapi.NewMessage(chatID, msgText)
@@ -3173,6 +3781,114 @@ func showCurrentRates(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) {
 	bot.Send(message)
 }
 
+func showBankAccountsManagement(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64) {
+	user, err := getUserByTelegramID(db, userID)
+	if err != nil || user == nil {
+		bot.Send(tgbotapi.NewMessage(chatID, "😔  یه مشکلی پیش اومد. \n\nاول ثبت‌نام کن، بعد برگرد! 😊"))
+		return
+	}
+
+	// دریافت حساب‌های بانکی کاربر
+	accounts, err := user.GetBankAccounts(db)
+	if err != nil {
+		bot.Send(tgbotapi.NewMessage(chatID, "😔 مشکلی در دریافت اطلاعات حساب‌ها پیش اومد!"))
+		return
+	}
+
+	accountCount := len(accounts)
+	var defaultAccount *models.BankAccount
+
+	// پیدا کردن حساب پیش‌فرض
+	for i := range accounts {
+		if accounts[i].IsDefault {
+			defaultAccount = &accounts[i]
+			break
+		}
+	}
+
+	menu := tgbotapi.NewReplyKeyboard(
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("➕ اضافه کردن حساب جدید"),
+		),
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("📋 مشاهده همه حساب‌ها"),
+		),
+	)
+
+	// اگر حساب‌هایی وجود داشته باشد، گزینه‌های بیشتر اضافه کن
+	if accountCount > 0 {
+		menu.Keyboard = append(menu.Keyboard,
+			tgbotapi.NewKeyboardButtonRow(
+				tgbotapi.NewKeyboardButton("🎯 تغییر حساب پیش‌فرض"),
+			),
+			tgbotapi.NewKeyboardButtonRow(
+				tgbotapi.NewKeyboardButton("🗑️ حذف حساب"),
+			),
+		)
+	}
+
+	menu.Keyboard = append(menu.Keyboard,
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("⬅️ بازگشت"),
+		),
+	)
+
+	menu.ResizeKeyboard = true
+	menu.OneTimeKeyboard = false
+
+	var msgText string
+	if accountCount == 0 {
+		msgText = fmt.Sprintf(`🏦 <b>مدیریت حساب‌های بانکی</b>
+
+📊 <b>وضعیت فعلی:</b>
+• تعداد حساب‌ها: ۰
+• حساب پیش‌فرض: ❌ تنظیم نشده
+
+🚀 <b>برای شروع:</b>
+ابتدا باید یک حساب بانکی اضافه کنید تا بتوانید برداشت کنید.
+
+💡 <b>امکانات:</b>
+➕ <b>اضافه کردن حساب جدید</b> - افزودن اولین شبا و کارت
+
+⚠️ <b>نکات مهم:</b>
+• شبا و کارت باید از یک حساب واحد باشند
+• اطلاعات باید به نام خودتان باشد: <b>%s</b>
+
+از منوی زیر استفاده کنید:`, user.FullName)
+	} else {
+		defaultInfo := "❌ تنظیم نشده"
+		if defaultAccount != nil {
+			defaultInfo = fmt.Sprintf("✅ %s***%s",
+				defaultAccount.Sheba[:8],
+				defaultAccount.Sheba[len(defaultAccount.Sheba)-4:])
+		}
+
+		msgText = fmt.Sprintf(`🏦 <b>مدیریت حساب‌های بانکی</b>
+
+📊 <b>وضعیت فعلی:</b>
+• تعداد حساب‌ها: %d
+• حساب پیش‌فرض: %s
+
+💡 <b>امکانات:</b>
+➕ <b>اضافه کردن حساب جدید</b> - افزودن شبا و کارت جدید
+📋 <b>مشاهده همه حساب‌ها</b> - نمایش جزئیات تمام حساب‌ها
+🎯 <b>تغییر حساب پیش‌فرض</b> - انتخاب حساب اصلی
+🗑️ <b>حذف حساب</b> - پاک کردن حساب‌های غیرضروری
+
+⚠️ <b>نکات مهم:</b>
+• تمام برداشت‌ها به حساب پیش‌فرض واریز می‌شود
+• شبا و کارت باید از یک حساب واحد باشند
+• اطلاعات باید به نام خودتان باشد: <b>%s</b>
+
+از منوی زیر استفاده کنید:`, accountCount, defaultInfo, user.FullName)
+	}
+
+	msg := tgbotapi.NewMessage(chatID, msgText)
+	msg.ParseMode = "HTML"
+	msg.ReplyMarkup = menu
+	bot.Send(msg)
+}
+
 func showBankInfoChangeMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64) {
 	user, err := getUserByTelegramID(db, userID)
 	if err != nil || user == nil {
@@ -3192,7 +3908,7 @@ func showBankInfoChangeMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, use
 • کارت جدید دریافت کرده‌اید
 • تغییر بانک
 
-⚠️ <b>نکات مهم:</b>
+⚠️ <b>نکته‌های مهم:</b>
 • شماره کارت و شبا حتماً باید به نام خودتان باشد: <b>%s</b>
 • شماره شبا و شماره کارت حتماً باید از یک کارت/حساب باشند
 
@@ -3214,6 +3930,85 @@ func showBankInfoChangeMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, use
 	message := tgbotapi.NewMessage(chatID, currentInfoMsg)
 	message.ParseMode = "HTML"
 	message.ReplyMarkup = keyboard
+	bot.Send(message)
+}
+
+func startAddNewBankAccount(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64) {
+	user, err := getUserByTelegramID(db, userID)
+	if err != nil || user == nil {
+		bot.Send(tgbotapi.NewMessage(chatID, "😔  یه مشکلی پیش اومد. \n\nاول ثبت‌نام کن، بعد برگرد! 😊"))
+		return
+	}
+
+	// دریافت حساب‌های موجود
+	accounts, err := user.GetBankAccounts(db)
+	if err != nil {
+		bot.Send(tgbotapi.NewMessage(chatID, "😔 مشکلی در دریافت اطلاعات حساب‌ها پیش اومد!"))
+		return
+	}
+
+	accountCount := len(accounts)
+
+	// شروع فرآیند اضافه کردن حساب جدید
+	setRegState(userID, "add_new_bank_sheba")
+
+	// مقداردهی اولیه regTemp
+	regTemp.Lock()
+	regTemp.m[userID] = make(map[string]string)
+	regTemp.Unlock()
+
+	// کیبورد برای لغو
+	cancelKeyboard := tgbotapi.NewReplyKeyboard(
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("❌ لغو و بازگشت"),
+		),
+	)
+	cancelKeyboard.ResizeKeyboard = true
+	cancelKeyboard.OneTimeKeyboard = false
+
+	var msgText string
+	if accountCount > 0 {
+		msgText = fmt.Sprintf(`➕ <b>اضافه کردن حساب بانکی جدید</b>
+
+📊 <b>وضعیت فعلی:</b>
+• تعداد حساب‌های موجود: %d
+
+🆕 <b>حساب جدید شماره %d</b>
+
+📝 <b>مرحله ۱: شماره شبا</b>
+
+لطفاً شماره شبا حساب بانکی جدید خود را وارد کنید:
+
+💡 <b>مثال درست:</b> IR520630144905901219088011
+
+⚠️ <b>نکته‌های مهم:</b>
+• حتماً با IR شروع کن
+• بعدش ۲۴ تا رقم بذار
+• هیچ فاصله یا خط تیره نذار
+• حتماً به نام خودت باشه: <b>%s</b>
+• این شبا قبلاً ثبت نشده باشد`, accountCount, accountCount+1, user.FullName)
+	} else {
+		msgText = fmt.Sprintf(`➕ <b>اضافه کردن حساب بانکی</b>
+
+🚀 <b>اولین حساب بانکی شما!</b>
+
+📝 <b>مرحله ۱: شماره شبا</b>
+
+لطفاً شماره شبا حساب بانکی خود را وارد کنید:
+
+💡 <b>مثال درست:</b> IR520630144905901219088011
+
+⚠️ <b>نکته‌های مهم:</b>
+• حتماً با IR شروع کن
+• بعدش ۲۴ تا رقم بذار
+• هیچ فاصله یا خط تیره نذار
+• حتماً به نام خودت باشه: <b>%s</b>
+• بعداً شماره کارت همین حساب رو وارد کن`, user.FullName)
+	}
+
+	message := tgbotapi.NewMessage(chatID, msgText)
+	message.ParseMode = "HTML"
+	message.ReplyMarkup = cancelKeyboard
 	bot.Send(message)
 }
 
@@ -3251,6 +4046,77 @@ func startBankInfoUpdate(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID
 	message := tgbotapi.NewMessage(chatID, shebaMsg)
 	message.ParseMode = "HTML"
 	message.ReplyMarkup = cancelKeyboard
+	bot.Send(message)
+}
+
+func showMyBankAccounts(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64) {
+	user, err := getUserByTelegramID(db, userID)
+	if err != nil || user == nil {
+		bot.Send(tgbotapi.NewMessage(chatID, "😔  یه مشکلی پیش اومد. \n\nاول ثبت‌نام کن، بعد برگرد! 😊"))
+		return
+	}
+
+	hasMainAccount := user.Sheba != "" && user.CardNumber != ""
+
+	var msgText string
+	if !hasMainAccount {
+		msgText = `📋 <b>حساب‌های بانکی من</b>
+
+😔 <b>هنوز هیچ حساب بانکی ندارید!</b>
+
+🚀 <b>برای شروع:</b>
+ابتدا باید یک حساب بانکی اضافه کنید تا بتوانید:
+• برداشت کنید
+• پاداش‌ها را دریافت کنید
+• از تمام امکانات استفاده کنید
+
+💡 برای اضافه کردن حساب، به منوی قبلی برگردید و "➕ اضافه کردن حساب جدید" را انتخاب کنید.`
+	} else {
+		// محاسبه تاریخ اضافه شدن حساب (تاریخ آپدیت کاربر)
+		accountDate := user.UpdatedAt.Format("02/01/2006")
+		if user.UpdatedAt.IsZero() {
+			accountDate = user.CreatedAt.Format("02/01/2006")
+		}
+
+		msgText = fmt.Sprintf(`📋 <b>حساب‌های بانکی من</b>
+
+✅ <b>حساب اصلی (فعال)</b>
+
+🏦 <b>جزئیات کامل:</b>
+• شماره شبا: <code>%s</code>
+• شماره کارت: <code>%s</code>
+• تاریخ اضافه: %s
+• وضعیت: ✅ فعال و آماده برداشت
+
+👤 <b>صاحب حساب:</b> %s
+
+💡 <b>کاربردها:</b>
+• تمام برداشت‌ها به این حساب واریز می‌شود
+• پاداش‌های رفرال به این حساب پرداخت می‌شود
+• حساب اصلی برای تمام تراکنش‌های مالی
+
+⚠️ <b>نکات امنیتی:</b>
+• هرگز اطلاعات حساب خود را با دیگران به اشتراک نگذارید
+• در صورت مفقود شدن کارت، حتماً حساب را تغییر دهید
+• حساب حتماً باید به نام خودتان باشد`,
+			user.Sheba,
+			user.CardNumber,
+			accountDate,
+			user.FullName)
+	}
+
+	// کیبورد برای بازگشت
+	keyboard := tgbotapi.NewReplyKeyboard(
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("⬅️ بازگشت"),
+		),
+	)
+	keyboard.ResizeKeyboard = true
+	keyboard.OneTimeKeyboard = false
+
+	message := tgbotapi.NewMessage(chatID, msgText)
+	message.ParseMode = "HTML"
+	message.ReplyMarkup = keyboard
 	bot.Send(message)
 }
 
@@ -3557,5 +4423,610 @@ func showSimpleCurrentRate(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) {
 
 	message := tgbotapi.NewMessage(chatID, rateMsg)
 	message.ParseMode = "HTML"
+	bot.Send(message)
+}
+
+func showAllBankAccounts(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64) {
+	user, err := getUserByTelegramID(db, userID)
+	if err != nil || user == nil {
+		bot.Send(tgbotapi.NewMessage(chatID, "😔  یه مشکلی پیش اومد. \n\nاول ثبت‌نام کن، بعد برگرد! 😊"))
+		return
+	}
+
+	// دریافت حساب‌های بانکی
+	accounts, err := user.GetBankAccounts(db)
+	if err != nil {
+		bot.Send(tgbotapi.NewMessage(chatID, "😔 مشکلی در دریافت اطلاعات حساب‌ها پیش اومد!"))
+		return
+	}
+
+	var msgText string
+	if len(accounts) == 0 {
+		msgText = `📋 <b>همه حساب‌های بانکی</b>
+
+😔 <b>هنوز هیچ حساب بانکی ندارید!</b>
+
+🚀 <b>برای شروع:</b>
+ابتدا باید یک حساب بانکی اضافه کنید تا بتوانید:
+• برداشت کنید
+• پاداش‌ها را دریافت کنید
+• از تمام امکانات استفاده کنید
+
+💡 برای اضافه کردن حساب، به منوی قبلی برگردید و "➕ اضافه کردن حساب جدید" را انتخاب کنید.`
+	} else {
+		msgText = fmt.Sprintf(`📋 <b>همه حساب‌های بانکی</b>
+
+📊 <b>تعداد کل حساب‌ها:</b> %d
+👤 <b>صاحب حساب:</b> %s
+
+`, len(accounts), user.FullName)
+
+		for i, account := range accounts {
+			status := "🔘 معمولی"
+			if account.IsDefault {
+				status = "✅ پیش‌فرض"
+			}
+
+			// تاریخ اضافه شدن
+			accountDate := account.CreatedAt.Format("02/01/2006")
+
+			bankName := account.BankName
+			if bankName == "" {
+				bankName = "نامشخص"
+			}
+
+			msgText += fmt.Sprintf(`🏦 <b>حساب %d</b> %s
+
+• شماره شبا: <code>%s</code>
+• شماره کارت: <code>%s</code>
+• نام بانک: %s
+• تاریخ اضافه: %s
+
+`, i+1, status, account.Sheba, account.CardNumber, bankName, accountDate)
+		}
+
+		msgText += `💡 <b>کاربردها:</b>
+• تمام برداشت‌ها به حساب پیش‌فرض واریز می‌شود
+• می‌توانید حساب پیش‌فرض را تغییر دهید
+• حساب‌های اضافی برای آینده ذخیره می‌شوند
+
+⚠️ <b>نکات امنیتی:</b>
+• هرگز اطلاعات حساب خود را با دیگران به اشتراک نگذارید
+• در صورت مفقود شدن کارت، حتماً حساب را حذف کنید
+• همه حساب‌ها حتماً باید به نام خودتان باشند`
+	}
+
+	// کیبورد برای بازگشت
+	keyboard := tgbotapi.NewReplyKeyboard(
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("⬅️ بازگشت"),
+		),
+	)
+	keyboard.ResizeKeyboard = true
+	keyboard.OneTimeKeyboard = false
+
+	message := tgbotapi.NewMessage(chatID, msgText)
+	message.ParseMode = "HTML"
+	message.ReplyMarkup = keyboard
+	bot.Send(message)
+}
+
+func showSelectDefaultAccount(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64) {
+	user, err := getUserByTelegramID(db, userID)
+	if err != nil || user == nil {
+		bot.Send(tgbotapi.NewMessage(chatID, "😔  یه مشکلی پیش اومد. \n\nاول ثبت‌نام کن، بعد برگرد! 😊"))
+		return
+	}
+
+	// دریافت حساب‌های بانکی
+	accounts, err := user.GetBankAccounts(db)
+	if err != nil {
+		bot.Send(tgbotapi.NewMessage(chatID, "😔 مشکلی در دریافت اطلاعات حساب‌ها پیش اومد!"))
+		return
+	}
+
+	if len(accounts) == 0 {
+		bot.Send(tgbotapi.NewMessage(chatID, `🎯 <b>تغییر حساب پیش‌فرض</b>
+
+😔 هنوز هیچ حساب بانکی ندارید!
+
+ابتدا یک حساب اضافه کنید.`))
+		showBankAccountsManagement(bot, db, chatID, userID)
+		return
+	}
+
+	if len(accounts) == 1 {
+		// اگر فقط یک حساب دارد، آن را پیش‌فرض کن
+		account := accounts[0]
+		if !account.IsDefault {
+			models.SetDefaultBankAccount(db, user.ID, account.ID)
+		}
+
+		bot.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf(`🎯 <b>تغییر حساب پیش‌فرض</b>
+
+✅ شما فقط یک حساب دارید که به عنوان پیش‌فرض تنظیم شد:
+
+🏦 شبا: <code>%s</code>
+💳 کارت: <code>%s</code>`, account.Sheba, account.CardNumber)))
+		showBankAccountsManagement(bot, db, chatID, userID)
+		return
+	}
+
+	// ایجاد کیبورد برای انتخاب حساب
+	var keyboard [][]tgbotapi.KeyboardButton
+
+	msgText := `🎯 <b>تغییر حساب پیش‌فرض</b>
+
+یکی از حساب‌های زیر را به عنوان پیش‌فرض انتخاب کنید:
+
+`
+
+	for i, account := range accounts {
+		status := "🔘"
+		if account.IsDefault {
+			status = "✅"
+		}
+
+		bankName := account.BankName
+		if bankName == "" {
+			bankName = "نامشخص"
+		}
+
+		// اضافه کردن اطلاعات حساب به متن
+		msgText += fmt.Sprintf(`%s <b>حساب %d</b> - %s
+• شبا: %s***%s
+• کارت: %s***%s
+
+`, status, i+1, bankName,
+			account.Sheba[:8], account.Sheba[len(account.Sheba)-4:],
+			account.CardNumber[:4], account.CardNumber[len(account.CardNumber)-4:])
+
+		// اضافه کردن دکمه برای انتخاب این حساب
+		buttonText := fmt.Sprintf("%s انتخاب حساب %d", status, i+1)
+		keyboard = append(keyboard, tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton(buttonText),
+		))
+	}
+
+	msgText += `💡 <b>نکته:</b> تمام برداشت‌ها به حساب پیش‌فرض واریز خواهد شد.`
+
+	// اضافه کردن دکمه بازگشت
+	keyboard = append(keyboard, tgbotapi.NewKeyboardButtonRow(
+		tgbotapi.NewKeyboardButton("⬅️ بازگشت"),
+	))
+
+	replyKeyboard := tgbotapi.NewReplyKeyboard(keyboard...)
+	replyKeyboard.ResizeKeyboard = true
+	replyKeyboard.OneTimeKeyboard = false
+
+	message := tgbotapi.NewMessage(chatID, msgText)
+	message.ParseMode = "HTML"
+	message.ReplyMarkup = replyKeyboard
+	bot.Send(message)
+}
+
+func showDeleteAccountMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64) {
+	user, err := getUserByTelegramID(db, userID)
+	if err != nil || user == nil {
+		bot.Send(tgbotapi.NewMessage(chatID, "😔  یه مشکلی پیش اومد. \n\nاول ثبت‌نام کن، بعد برگرد! 😊"))
+		return
+	}
+
+	// دریافت حساب‌های بانکی
+	accounts, err := user.GetBankAccounts(db)
+	if err != nil {
+		bot.Send(tgbotapi.NewMessage(chatID, "😔 مشکلی در دریافت اطلاعات حساب‌ها پیش اومد!"))
+		return
+	}
+
+	if len(accounts) == 0 {
+		bot.Send(tgbotapi.NewMessage(chatID, `🗑️ <b>حذف حساب</b>
+
+😔 هنوز هیچ حساب بانکی ندارید!
+
+ابتدا یک حساب اضافه کنید.`))
+		showBankAccountsManagement(bot, db, chatID, userID)
+		return
+	}
+
+	if len(accounts) == 1 {
+		bot.Send(tgbotapi.NewMessage(chatID, `🗑️ <b>حذف حساب</b>
+
+⚠️ شما فقط یک حساب دارید!
+
+اگر این حساب را حذف کنید، نمی‌توانید برداشت کنید.
+بهتر است قبل از حذف، حساب جدیدی اضافه کنید.`))
+		showBankAccountsManagement(bot, db, chatID, userID)
+		return
+	}
+
+	// ایجاد کیبورد برای انتخاب حساب جهت حذف
+	var keyboard [][]tgbotapi.KeyboardButton
+
+	msgText := `🗑️ <b>حذف حساب بانکی</b>
+
+⚠️ <b>هشدار:</b> این عمل غیرقابل برگشت است!
+
+یکی از حساب‌های زیر را برای حذف انتخاب کنید:
+
+`
+
+	for i, account := range accounts {
+		status := "🔘"
+		if account.IsDefault {
+			status = "✅ پیش‌فرض"
+		} else {
+			status = "🔘 معمولی"
+		}
+
+		bankName := account.BankName
+		if bankName == "" {
+			bankName = "نامشخص"
+		}
+
+		// اضافه کردن اطلاعات حساب به متن
+		msgText += fmt.Sprintf(`🏦 <b>حساب %d</b> - %s - %s
+• شبا: %s***%s
+• کارت: %s***%s
+
+`, i+1, bankName, status,
+			account.Sheba[:8], account.Sheba[len(account.Sheba)-4:],
+			account.CardNumber[:4], account.CardNumber[len(account.CardNumber)-4:])
+
+		// اضافه کردن دکمه برای حذف این حساب
+		buttonText := fmt.Sprintf("🗑️ حذف حساب %d", i+1)
+		keyboard = append(keyboard, tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton(buttonText),
+		))
+	}
+
+	msgText += `💡 <b>نکات مهم:</b>
+• اگر حساب پیش‌فرض را حذف کنید، یکی از حساب‌های باقی‌مانده پیش‌فرض می‌شود
+• این عمل قابل بازگشت نیست
+• مطمئن شوید که دیگر نیازی به این حساب ندارید`
+
+	// اضافه کردن دکمه بازگشت
+	keyboard = append(keyboard, tgbotapi.NewKeyboardButtonRow(
+		tgbotapi.NewKeyboardButton("⬅️ بازگشت"),
+	))
+
+	replyKeyboard := tgbotapi.NewReplyKeyboard(keyboard...)
+	replyKeyboard.ResizeKeyboard = true
+	replyKeyboard.OneTimeKeyboard = false
+
+	message := tgbotapi.NewMessage(chatID, msgText)
+	message.ParseMode = "HTML"
+	message.ReplyMarkup = replyKeyboard
+	bot.Send(message)
+}
+
+func handleSelectDefaultAccount(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64, buttonText string) {
+	user, err := getUserByTelegramID(db, userID)
+	if err != nil || user == nil {
+		bot.Send(tgbotapi.NewMessage(chatID, "😔  یه مشکلی پیش اومد. \n\nاول ثبت‌نام کن، بعد برگرد! 😊"))
+		return
+	}
+
+	// استخراج شماره حساب از متن دکمه
+	var accountNum int
+	if strings.HasPrefix(buttonText, "✅ انتخاب حساب ") {
+		accountNum, _ = strconv.Atoi(strings.TrimPrefix(buttonText, "✅ انتخاب حساب "))
+	} else if strings.HasPrefix(buttonText, "🔘 انتخاب حساب ") {
+		accountNum, _ = strconv.Atoi(strings.TrimPrefix(buttonText, "🔘 انتخاب حساب "))
+	}
+
+	if accountNum <= 0 {
+		bot.Send(tgbotapi.NewMessage(chatID, "😔 شماره حساب نامعتبر است!"))
+		showBankAccountsManagement(bot, db, chatID, userID)
+		return
+	}
+
+	// دریافت حساب‌های بانکی
+	accounts, err := user.GetBankAccounts(db)
+	if err != nil || len(accounts) < accountNum {
+		bot.Send(tgbotapi.NewMessage(chatID, "😔 حساب مورد نظر یافت نشد!"))
+		showBankAccountsManagement(bot, db, chatID, userID)
+		return
+	}
+
+	// انتخاب حساب (منطق 0-based)
+	selectedAccount := accounts[accountNum-1]
+
+	// اگر قبلاً پیش‌فرض است
+	if selectedAccount.IsDefault {
+		bot.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf(`🎯 <b>حساب پیش‌فرض</b>
+
+ℹ️ این حساب از قبل به عنوان پیش‌فرض تنظیم شده:
+
+🏦 شبا: <code>%s</code>
+💳 کارت: <code>%s</code>`, selectedAccount.Sheba, selectedAccount.CardNumber)))
+		showBankAccountsManagement(bot, db, chatID, userID)
+		return
+	}
+
+	// تنظیم به عنوان پیش‌فرض
+	if err := models.SetDefaultBankAccount(db, user.ID, selectedAccount.ID); err != nil {
+		bot.Send(tgbotapi.NewMessage(chatID, "😔 خطا در تنظیم حساب پیش‌فرض!"))
+		showBankAccountsManagement(bot, db, chatID, userID)
+		return
+	}
+
+	// پیام موفقیت
+	bankName := selectedAccount.BankName
+	if bankName == "" {
+		bankName = "نامشخص"
+	}
+
+	successMsg := fmt.Sprintf(`🎉 <b>حساب پیش‌فرض تغییر کرد!</b>
+
+✅ <b>حساب جدید پیش‌فرض:</b>
+• شماره شبا: <code>%s</code>
+• شماره کارت: <code>%s</code>
+• نام بانک: %s
+
+💡 از این پس تمام برداشت‌ها به این حساب واریز خواهد شد.`,
+		selectedAccount.Sheba, selectedAccount.CardNumber, bankName)
+
+	message := tgbotapi.NewMessage(chatID, successMsg)
+	message.ParseMode = "HTML"
+	bot.Send(message)
+
+	showBankAccountsManagement(bot, db, chatID, userID)
+}
+
+func handleDeleteAccount(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64, buttonText string) {
+	user, err := getUserByTelegramID(db, userID)
+	if err != nil || user == nil {
+		bot.Send(tgbotapi.NewMessage(chatID, "😔  یه مشکلی پیش اومد. \n\nاول ثبت‌نام کن، بعد برگرد! 😊"))
+		return
+	}
+
+	// استخراج شماره حساب از متن دکمه
+	accountNumStr := strings.TrimPrefix(buttonText, "🗑️ حذف حساب ")
+	accountNum, err := strconv.Atoi(accountNumStr)
+	if err != nil || accountNum <= 0 {
+		bot.Send(tgbotapi.NewMessage(chatID, "😔 شماره حساب نامعتبر است!"))
+		showBankAccountsManagement(bot, db, chatID, userID)
+		return
+	}
+
+	// دریافت حساب‌های بانکی
+	accounts, err := user.GetBankAccounts(db)
+	if err != nil || len(accounts) < accountNum {
+		bot.Send(tgbotapi.NewMessage(chatID, "😔 حساب مورد نظر یافت نشد!"))
+		showBankAccountsManagement(bot, db, chatID, userID)
+		return
+	}
+
+	// انتخاب حساب برای حذف (منطق 0-based)
+	accountToDelete := accounts[accountNum-1]
+
+	// تأیید حذف
+	bankName := accountToDelete.BankName
+	if bankName == "" {
+		bankName = "نامشخص"
+	}
+
+	confirmMsg := fmt.Sprintf(`⚠️ <b>تایید حذف حساب</b>
+
+آیا مطمئن هستید که می‌خواهید این حساب را حذف کنید؟
+
+🏦 <b>حساب مورد نظر:</b>
+• شماره شبا: <code>%s</code>
+• شماره کارت: <code>%s</code>
+• نام بانک: %s
+• وضعیت: %s
+
+⚠️ <b>هشدار:</b> این عمل غیرقابل برگشت است!`,
+		accountToDelete.Sheba, accountToDelete.CardNumber, bankName,
+		func() string {
+			if accountToDelete.IsDefault {
+				return "✅ پیش‌فرض"
+			}
+			return "🔘 معمولی"
+		}())
+
+	keyboard := tgbotapi.NewReplyKeyboard(
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton(fmt.Sprintf("✅ بله، حساب %d را حذف کن", accountNum)),
+		),
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("❌ نه، لغو کن"),
+		),
+	)
+	keyboard.ResizeKeyboard = true
+	keyboard.OneTimeKeyboard = false
+
+	// ذخیره ID حساب برای حذف در regTemp
+	regTemp.Lock()
+	if regTemp.m[userID] == nil {
+		regTemp.m[userID] = make(map[string]string)
+	}
+	regTemp.m[userID]["delete_account_id"] = fmt.Sprintf("%d", accountToDelete.ID)
+	regTemp.Unlock()
+
+	message := tgbotapi.NewMessage(chatID, confirmMsg)
+	message.ParseMode = "HTML"
+	message.ReplyMarkup = keyboard
+	bot.Send(message)
+}
+
+func handleConfirmDeleteAccount(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64) {
+	user, err := getUserByTelegramID(db, userID)
+	if err != nil || user == nil {
+		bot.Send(tgbotapi.NewMessage(chatID, "😔 متاسفانه مشکلی پیش اومد! با پشتیبانی تماس بگیر."))
+		clearRegState(userID)
+		return
+	}
+
+	// دریافت ID حساب برای حذف از regTemp
+	regTemp.RLock()
+	accountIDStr, exists := regTemp.m[userID]["delete_account_id"]
+	regTemp.RUnlock()
+
+	if !exists || accountIDStr == "" {
+		bot.Send(tgbotapi.NewMessage(chatID, "😔 خطا در تشخیص حساب! دوباره تلاش کنید."))
+		clearRegState(userID)
+		showBankAccountsManagement(bot, db, chatID, userID)
+		return
+	}
+
+	accountID, err := strconv.Atoi(accountIDStr)
+	if err != nil {
+		bot.Send(tgbotapi.NewMessage(chatID, "😔 شناسه حساب نامعتبر است!"))
+		clearRegState(userID)
+		showBankAccountsManagement(bot, db, chatID, userID)
+		return
+	}
+
+	// دریافت حساب‌های بانکی قبل از حذف
+	accounts, err := user.GetBankAccounts(db)
+	if err != nil {
+		bot.Send(tgbotapi.NewMessage(chatID, "😔 مشکلی در دریافت اطلاعات حساب‌ها پیش اومد!"))
+		clearRegState(userID)
+		return
+	}
+
+	// پیدا کردن حساب مورد نظر
+	var accountToDelete *models.BankAccount
+	for _, account := range accounts {
+		if account.ID == uint(accountID) {
+			accountToDelete = &account
+			break
+		}
+	}
+
+	if accountToDelete == nil {
+		bot.Send(tgbotapi.NewMessage(chatID, "😔 حساب مورد نظر یافت نشد!"))
+		clearRegState(userID)
+		showBankAccountsManagement(bot, db, chatID, userID)
+		return
+	}
+
+	// ذخیره اطلاعات برای نمایش در پیام
+	deletedSheba := accountToDelete.Sheba
+	deletedCard := accountToDelete.CardNumber
+	wasDefault := accountToDelete.IsDefault
+	bankName := accountToDelete.BankName
+	if bankName == "" {
+		bankName = "نامشخص"
+	}
+
+	// حذف حساب
+	if err := models.DeleteBankAccount(db, user.ID, uint(accountID)); err != nil {
+		bot.Send(tgbotapi.NewMessage(chatID, "😔 خطا در حذف حساب! لطفاً دوباره تلاش کنید."))
+		clearRegState(userID)
+		showBankAccountsManagement(bot, db, chatID, userID)
+		return
+	}
+
+	// اگر حساب حذف شده پیش‌فرض بود، یکی از حساب‌های باقی‌مانده را پیش‌فرض کن
+	if wasDefault && len(accounts) > 1 {
+		// دریافت حساب‌های باقی‌مانده
+		remainingAccounts, err := user.GetBankAccounts(db)
+		if err == nil && len(remainingAccounts) > 0 {
+			// اولین حساب باقی‌مانده را پیش‌فرض کن
+			models.SetDefaultBankAccount(db, user.ID, remainingAccounts[0].ID)
+		}
+	}
+
+	clearRegState(userID)
+
+	// پیام موفقیت
+	successMsg := fmt.Sprintf(`🗑️ <b>حساب با موفقیت حذف شد!</b>
+
+✅ <b>حساب حذف شده:</b>
+• شماره شبا: <code>%s</code>
+• شماره کارت: <code>%s</code>
+• نام بانک: %s
+
+%s
+
+💡 حساب برای همیشه حذف شد و قابل بازیافت نیست.`,
+		deletedSheba, deletedCard, bankName,
+		func() string {
+			if wasDefault && len(accounts) > 1 {
+				return "🔄 <b>نکته:</b> چون این حساب پیش‌فرض بود، یکی از حساب‌های باقی‌مانده به عنوان پیش‌فرض تنظیم شد."
+			}
+			return ""
+		}())
+
+	message := tgbotapi.NewMessage(chatID, successMsg)
+	message.ParseMode = "HTML"
+	bot.Send(message)
+
+	showBankAccountsManagement(bot, db, chatID, userID)
+}
+
+func showBankAccountSelection(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64, tomanAmount, usdtAmount, usdtRate float64) {
+	user, err := getUserByTelegramID(db, userID)
+	if err != nil || user == nil {
+		bot.Send(tgbotapi.NewMessage(chatID, "😔  یه مشکلی پیش اومد. \n\nاول ثبت‌نام کن، بعد برگرد! 😊"))
+		return
+	}
+
+	// دریافت حساب‌های بانکی
+	accounts, err := user.GetBankAccounts(db)
+	if err != nil || len(accounts) == 0 {
+		bot.Send(tgbotapi.NewMessage(chatID, "😔 هیچ حساب بانکی یافت نشد!"))
+		clearRegState(userID)
+		showWalletMenu(bot, db, chatID, userID)
+		return
+	}
+
+	// ایجاد کیبورد برای انتخاب حساب
+	var keyboard [][]tgbotapi.KeyboardButton
+
+	msgText := fmt.Sprintf(`🏦 <b>انتخاب حساب بانکی برای برداشت</b>
+
+💵 <b>مبلغ برداشت:</b> %s تومان
+💰 <b>معادل:</b> %.4f USDT
+📊 <b>نرخ:</b> %s تومان
+
+👇 <b>یکی از حساب‌های زیر را انتخاب کنید:</b>
+
+`, formatToman(tomanAmount), usdtAmount, formatToman(usdtRate))
+
+	for i, account := range accounts {
+		status := "🔘"
+		if account.IsDefault {
+			status = "✅ (پیش‌فرض)"
+		}
+
+		bankName := account.BankName
+		if bankName == "" {
+			bankName = "نامشخص"
+		}
+
+		// اضافه کردن اطلاعات حساب به متن
+		msgText += fmt.Sprintf(`🏦 <b>حساب %d</b> %s - %s
+• شبا: %s***%s
+• کارت: %s***%s
+
+`, i+1, status, bankName,
+			account.Sheba[:8], account.Sheba[len(account.Sheba)-4:],
+			account.CardNumber[:4], account.CardNumber[len(account.CardNumber)-4:])
+
+		// اضافه کردن دکمه برای انتخاب این حساب
+		buttonText := fmt.Sprintf("🏦 برداشت به حساب %d", i+1)
+		keyboard = append(keyboard, tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton(buttonText),
+		))
+	}
+
+	msgText += `💡 <b>نکته:</b> مبلغ به حساب انتخابی شما واریز خواهد شد.`
+
+	// اضافه کردن دکمه بازگشت
+	keyboard = append(keyboard, tgbotapi.NewKeyboardButtonRow(
+		tgbotapi.NewKeyboardButton("❌ لغو برداشت"),
+	))
+
+	replyKeyboard := tgbotapi.NewReplyKeyboard(keyboard...)
+	replyKeyboard.ResizeKeyboard = true
+	replyKeyboard.OneTimeKeyboard = false
+
+	message := tgbotapi.NewMessage(chatID, msgText)
+	message.ParseMode = "HTML"
+	message.ReplyMarkup = replyKeyboard
 	bot.Send(message)
 }

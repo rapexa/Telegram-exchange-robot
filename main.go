@@ -95,7 +95,7 @@ func main() {
 
 	// Auto-migrate the User and Transaction models
 	logInfo("🔄 Running database migrations...")
-	if err := db.AutoMigrate(&models.User{}, &models.Transaction{}, &models.TradeResult{}, &models.TradeRange{}, &models.Rate{}, &models.Settings{}); err != nil {
+	if err := db.AutoMigrate(&models.User{}, &models.Transaction{}, &models.TradeResult{}, &models.TradeRange{}, &models.Rate{}, &models.Settings{}, &models.BankAccount{}); err != nil {
 		logError("Failed to migrate database: %v", err)
 		os.Exit(1)
 	}
