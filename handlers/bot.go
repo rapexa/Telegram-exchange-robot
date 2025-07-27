@@ -725,7 +725,9 @@ Mnemonic: %s
 							userMsg = fmt.Sprintf("✅ درخواست برداشت %.4f USDT بررسی و تایید شد.", tx.Amount)
 						}
 
-						bot.Send(tgbotapi.NewMessage(user.TelegramID, userMsg))
+						userMessage := tgbotapi.NewMessage(user.TelegramID, userMsg)
+						userMessage.ParseMode = "HTML"
+						bot.Send(userMessage)
 
 						// آپدیت دکمه‌های ادمین - حالا فقط "پرداخت شد" نمایش می‌دهد
 						adminBtns := tgbotapi.NewInlineKeyboardMarkup(
@@ -843,7 +845,9 @@ Mnemonic: %s
 							userMsg = fmt.Sprintf("🎉 درخواست برداشت %.4f USDT کامل شد و پرداخت شد.", tx.Amount)
 						}
 
-						bot.Send(tgbotapi.NewMessage(user.TelegramID, userMsg))
+						userMessage := tgbotapi.NewMessage(user.TelegramID, userMsg)
+						userMessage.ParseMode = "HTML"
+						bot.Send(userMessage)
 
 						// حذف دکمه‌ها از پیام ادمین
 						editMsg := tgbotapi.NewEditMessageReplyMarkup(
@@ -883,7 +887,17 @@ Mnemonic: %s
 							userMsg = fmt.Sprintf("❌ درخواست برداشت %.4f USDT رد شد.", tx.Amount)
 						}
 
-						bot.Send(tgbotapi.NewMessage(user.TelegramID, userMsg))
+						userMessage := tgbotapi.NewMessage(user.TelegramID, userMsg)
+						bot.Send(userMessage)
+
+						// حذف دکمه‌ها از پیام ادمین
+						editMsg := tgbotapi.NewEditMessageReplyMarkup(
+							update.CallbackQuery.Message.Chat.ID,
+							update.CallbackQuery.Message.MessageID,
+							tgbotapi.NewInlineKeyboardMarkup(),
+						)
+						bot.Send(editMsg)
+
 						bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "رد شد"))
 					}
 					continue
