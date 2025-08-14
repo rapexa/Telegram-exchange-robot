@@ -1100,6 +1100,13 @@ Mnemonic: %s
 
 		// Before showing main menu, check if user is fully registered
 		userID := int64(update.Message.From.ID)
+
+		// Check if user is admin first - admins don't need to be registered
+		if isAdmin(userID) {
+			handleAdminMenu(bot, db, update.Message)
+			continue
+		}
+
 		user, err := getUserByTelegramID(db, userID)
 
 		if err != nil || user == nil {
