@@ -4135,7 +4135,7 @@ func ensureUserWallet(db *gorm.DB, user *models.User) {
 // --- Settings Management ---
 func getSetting(db *gorm.DB, key string, defaultValue string) string {
 	var setting models.Settings
-	if err := db.Where("key = ?", key).First(&setting).Error; err != nil {
+	if err := db.Where("`key` = ?", key).First(&setting).Error; err != nil {
 		return defaultValue
 	}
 	return setting.Value
@@ -4143,14 +4143,18 @@ func getSetting(db *gorm.DB, key string, defaultValue string) string {
 
 func setSetting(db *gorm.DB, key, value, description string) error {
 	var setting models.Settings
-	if err := db.Where("key = ?", key).First(&setting).Error; err != nil {
-		// ایجاد تنظیم جدید
-		setting = models.Settings{
-			Key:         key,
-			Value:       value,
-			Description: description,
+	if err := db.Where("`key` = ?", key).First(&setting).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			// ایجاد تنظیم جدید
+			setting = models.Settings{
+				Key:         key,
+				Value:       value,
+				Description: description,
+			}
+			return db.Create(&setting).Error
 		}
-		return db.Create(&setting).Error
+		// خطای دیتابیس
+		return err
 	} else {
 		// به‌روزرسانی تنظیم موجود
 		setting.Value = value
@@ -4181,9 +4185,28 @@ func getMaxWithdrawToman(db *gorm.DB) float64 {
 
 // --- Initialize Default Settings ---
 func InitializeDefaultSettings(db *gorm.DB) {
-	setSetting(db, models.SETTING_MIN_DEPOSIT_USDT, "100", "حداقل مبلغ واریز (USDT)")
-	setSetting(db, models.SETTING_MIN_WITHDRAW_TOMAN, "5000000", "حداقل مبلغ برداشت (تومان)")
-	setSetting(db, models.SETTING_MAX_WITHDRAW_TOMAN, "100000000", "حداکثر مبلغ برداشت (تومان)")
+	// Only create settings if they don't exist (for defaults)
+	setSettingIfNotExists(db, models.SETTING_MIN_DEPOSIT_USDT, "100", "حداقل مبلغ واریز (USDT)")
+	setSettingIfNotExists(db, models.SETTING_MIN_WITHDRAW_TOMAN, "5000000", "حداقل مبلغ برداشت (تومان)")
+	setSettingIfNotExists(db, models.SETTING_MAX_WITHDRAW_TOMAN, "100000000", "حداکثر مبلغ برداشت (تومان)")
+}
+
+func setSettingIfNotExists(db *gorm.DB, key, value, description string) error {
+	var setting models.Settings
+	if err := db.Where("`key` = ?", key).First(&setting).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			// ایجاد تنظیم جدید فقط در صورت عدم وجود
+			setting = models.Settings{
+				Key:         key,
+				Value:       value,
+				Description: description,
+			}
+			return db.Create(&setting).Error
+		}
+		return err
+	}
+	// تنظیم موجود است، هیچ کاری نمی‌کنیم
+	return nil
 }
 
 func showCurrentRates(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) {
