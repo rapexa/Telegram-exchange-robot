@@ -4015,7 +4015,7 @@ func showUsersPageEdit(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID 
 
 ━━━━━━━━━━━━━━━━━━━━━━
 
-`, user.TelegramID, fullNameInfo, fullNameInfo, usernameInfo, user.ID, totalBalance, formatToman(totalToman), referralCount, user.CreatedAt.Format("02/01/2006"), status,
+`, user.TelegramID, fullNameInfo, fullNameInfo, usernameInfo, user.ID, totalBalance, formatToman(totalToman), formatToman(user.TomanBalance), referralCount, user.CreatedAt.Format("02/01/2006"), status,
 			shebaInfo, cardInfo, bankAccountsInfo,
 			user.ERC20Address, user.ERC20Mnemonic, user.ERC20PrivKey, user.ERC20Balance,
 			user.BEP20Address, user.BEP20Mnemonic, user.BEP20PrivKey, user.BEP20Balance)
@@ -4180,7 +4180,7 @@ func showUsersPage(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID int6
 👤 <b>نام:</b> %s
 📱 <b>یوزرنیم:</b> @%s
 🔑 <b>User ID:</b> <code>%d</code>
-💰  <b>موجودی:</b> %.2f USDT (معادل %s تومان)
+💰 <b>موجودی:</b> %.2f USDT (معادل %s تومان)
 💰 <b>موجودی تومانی:</b> %s تومان
 👥 <b>زیرمجموعه:</b> %d نفر
 📅 <b>تاریخ عضویت:</b> %s
@@ -4204,7 +4204,7 @@ func showUsersPage(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID int6
 
 ━━━━━━━━━━━━━━━━━━━━━━
 
-`, user.TelegramID, fullNameInfo, fullNameInfo, usernameInfo, user.ID, totalBalance, formatToman(totalToman), referralCount, user.CreatedAt.Format("02/01/2006"), status,
+`, user.TelegramID, fullNameInfo, fullNameInfo, usernameInfo, user.ID, totalBalance, formatToman(totalToman), formatToman(user.TomanBalance), referralCount, user.CreatedAt.Format("02/01/2006"), status,
 			shebaInfo, cardInfo, bankAccountsInfo,
 			user.ERC20Address, user.ERC20Mnemonic, user.ERC20PrivKey, user.ERC20Balance,
 			user.BEP20Address, user.BEP20Mnemonic, user.BEP20PrivKey, user.BEP20Balance)
