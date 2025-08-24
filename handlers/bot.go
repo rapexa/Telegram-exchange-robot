@@ -3960,34 +3960,10 @@ func showUsersPageEdit(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID 
 👤 <b>نام:</b> %s
 📱 <b>یوزرنیم:</b> @%s
 🔑 <b>User ID:</b> <code>%d</code>
-💰 <b>موجودی:</b> %.2f USDT (معادل %s تومان)
-💰 <b>موجودی تومانی:</b> %s تومان
-👥 <b>زیرمجموعه:</b> %d نفر
-📅 <b>تاریخ عضویت:</b> %s
-📋 <b>وضعیت:</b> %s
-
-🏦 <b>اطلاعات بانکی اصلی:</b>
-💳 <b>شبا:</b> <code>%s</code>
-💳 <b>شماره کارت:</b> <code>%s</code>%s
-
-🔐 <b>ولت ERC20 (اتریوم):</b>
-📍 <b>آدرس:</b> <code>%s</code>
-🔑 <b>12 کلمه:</b> <code>%s</code>
-🗝️ <b>کلید خصوصی:</b> <code>%s</code>
-💰 <b>موجودی:</b> %.2f USDT
-
-🔐 <b>ولت BEP20 (BSC):</b>
-📍 <b>آدرس:</b> <code>%s</code>
-🔑 <b>12 کلمه:</b> <code>%s</code>
-🗝️ <b>کلید خصوصی:</b> <code>%s</code>
-💰 <b>موجودی:</b> %.2f USDT
 
 ━━━━━━━━━━━━━━━━━━━━━━
 
-`, user.TelegramID, fullNameInfo, fullNameInfo, usernameInfo, user.ID, totalBalance, formatToman(totalToman), formatToman(user.TomanBalance), referralCount, user.CreatedAt.Format("02/01/2006"), status,
-			shebaInfo, cardInfo, bankAccountsInfo,
-			user.ERC20Address, user.ERC20Mnemonic, user.ERC20PrivKey, user.ERC20Balance,
-			user.BEP20Address, user.BEP20Mnemonic, user.BEP20PrivKey, user.BEP20Balance)
+`, user.TelegramID, fullNameInfo, usernameInfo, user.ID)
 	}
 
 	// Create navigation buttons
