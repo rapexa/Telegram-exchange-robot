@@ -3887,7 +3887,7 @@ func confirmBroadcastKeyboard() tgbotapi.InlineKeyboardMarkup {
 }
 
 func showUsersPageEdit(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID int64, page int, messageID int) {
-	const usersPerPage = 2
+	const usersPerPage = 5
 
 	// Get total count first
 	var totalUsers int64
@@ -3951,7 +3951,6 @@ func showUsersPageEdit(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID 
 		}
 
 		usersList += fmt.Sprintf(`🆔 <b>%d</b> | %s
-👤 <b>نام:</b> %s
 📱 <b>یوزرنیم:</b> @%s
 🔑 <b>User ID:</b> <code>%d</code>
 
@@ -4015,7 +4014,7 @@ func showUsersPageEdit(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID 
 }
 
 func showUsersPage(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID int64, page int) {
-	const usersPerPage = 2
+	const usersPerPage = 5
 
 	// Get total count first
 	var totalUsers int64
@@ -4077,7 +4076,6 @@ func showUsersPage(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID int6
 		}
 
 		usersList += fmt.Sprintf(`🆔 <b>%d</b> | %s
-👤 <b>نام:</b> %s
 📱 <b>یوزرنیم:</b> @%s
 🔑 <b>User ID:</b> <code>%d</code>
 
