@@ -3938,12 +3938,6 @@ func showUsersPageEdit(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID 
 
 	for _, userData := range users {
 		user := userData.User
-		referralCount := userData.ReferralCount
-
-		status := "❌ ناقص"
-		if user.Registered {
-			status = "✅ تکمیل"
-		}
 
 		// Show fallback messages for empty fields
 		fullNameInfo := user.FullName
@@ -4070,12 +4064,6 @@ func showUsersPage(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID int6
 
 	for _, userData := range users {
 		user := userData.User
-		referralCount := userData.ReferralCount
-
-		status := "❌ ناقص"
-		if user.Registered {
-			status = "✅ تکمیل"
-		}
 
 		// Show fallback messages for empty fields
 		fullNameInfo := user.FullName
