@@ -2786,15 +2786,12 @@ func showUserInfo(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, user *models.
 
 	// Get USDT rate for Toman conversion
 	usdtRate, err := getUSDTRate(db)
-	var tomanInfo string
 	var totalTomanInfo string
 
 	if err == nil {
 		totalToman := (totalBalance * usdtRate) + tomanBalance
-		tomanInfo = fmt.Sprintf(" (معادل %s تومان)", formatToman(totalToman))
 		totalTomanInfo = fmt.Sprintf(" (معادل %s تومان)", formatToman(totalToman))
 	} else {
-		tomanInfo = ""
 		totalTomanInfo = ""
 	}
 
@@ -3802,7 +3799,7 @@ func showPersonalStats(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message)
 	erc20Balance := user.ERC20Balance
 	bep20Balance := user.BEP20Balance
 	tradeBalance := user.TradeBalance
-	rewardBalance := user.RewardReward
+	rewardBalance := user.ReferralReward
 	tomanBalance := user.TomanBalance
 	totalBalance := erc20Balance + bep20Balance + tradeBalance + rewardBalance
 
@@ -3939,8 +3936,17 @@ func showUsersPageEdit(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID 
 		// Ensure wallet exists for admin view
 		ensureUserWallet(db, &user)
 
-		// محاسبه موجودی کل
-		totalBalance := user.ERC20Balance + user.BEP20Balance + user.TradeBalance + user.RewardBalance
+		// Get USDT rate for Toman conversion
+		usdtRate, err := getUSDTRate(db)
+		var tomanInfo string
+		var totalToman float64
+
+		if err == nil {
+			totalToman = (totalBalance * usdtRate) + user.TomanBalance
+			tomanInfo = fmt.Sprintf(" (معادل %s تومان)", formatToman(totalToman))
+		} else {
+			tomanInfo = ""
+		}
 
 		// Get multiple bank accounts
 		bankAccounts, err := user.GetBankAccounts(db)
@@ -3985,8 +3991,8 @@ func showUsersPageEdit(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID 
 👤 <b>نام:</b> %s
 📱 <b>یوزرنیم:</b> @%s
 🔑 <b>User ID:</b> <code>%d</code>
-💰 <b>موجودی:</b> %.2f USDT
-🎁 <b>پاداش:</b> %.2f USDT
+💰 <b>موجودی:</b> %.2f USDT%s
+💰 <b>موجودی تومانی:</b> %s تومان
 👥 <b>زیرمجموعه:</b> %d نفر
 📅 <b>تاریخ عضویت:</b> %s
 📋 <b>وضعیت:</b> %s
