@@ -1067,6 +1067,18 @@ Mnemonic: %s
 					continue
 				}
 
+				// Handle user details callbacks
+				if strings.HasPrefix(data, "user_details_") {
+					userIDstr := strings.TrimPrefix(data, "user_details_")
+					userIDint, err := strconv.Atoi(userIDstr)
+					if err == nil {
+						// Show user details
+						handleUserDetails(bot, db, update.CallbackQuery.Message.Chat.ID, int64(userIDint))
+						bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "جزئیات کاربر نمایش داده شد"))
+						continue
+					}
+				}
+
 				state := adminBroadcastState[userID]
 				// مرحله 2: تایید اولیه درخواست (بدون کسر موجودی)
 				if strings.HasPrefix(data, "approve_withdraw_") {
@@ -3933,53 +3945,10 @@ func showUsersPageEdit(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID 
 			status = "✅ تکمیل"
 		}
 
-		// Ensure wallet exists for admin view
-		ensureUserWallet(db, &user)
-
-		// Get USDT rate for Toman conversion
-		usdtRate, err := getUSDTRate(db)
-		var totalBalance float64
-		var totalToman float64
-
-		// Calculate total balance
-		totalBalance = user.ERC20Balance + user.BEP20Balance + user.TradeBalance + user.ReferralReward
-
-		if err == nil {
-			totalToman = (totalBalance * usdtRate) + user.TomanBalance
-		}
-
-		// Get multiple bank accounts
-		bankAccounts, err := user.GetBankAccounts(db)
-		bankAccountsInfo := ""
-		if err == nil && len(bankAccounts) > 0 {
-			bankAccountsInfo = "\n🏦 <b>حساب‌های بانکی متعدد:</b>\n"
-			for i, acc := range bankAccounts {
-				defaultIcon := ""
-				if acc.IsDefault {
-					defaultIcon = " ⭐"
-				}
-				bankAccountsInfo += fmt.Sprintf("💳 <b>حساب %d:</b>%s\n", i+1, defaultIcon)
-				bankAccountsInfo += fmt.Sprintf("   📋 شبا: <code>%s</code>\n", acc.Sheba)
-				bankAccountsInfo += fmt.Sprintf("   💳 کارت: <code>%s</code>\n", acc.CardNumber)
-				if acc.BankName != "" {
-					bankAccountsInfo += fmt.Sprintf("   🏛️ بانک: %s\n", acc.BankName)
-				}
-				bankAccountsInfo += "\n"
-			}
-		}
-
 		// Show fallback messages for empty fields
-		shebaInfo := user.Sheba
-		cardInfo := user.CardNumber
 		fullNameInfo := user.FullName
 		usernameInfo := user.Username
 
-		if shebaInfo == "" {
-			shebaInfo = "❌ ثبت نشده"
-		}
-		if cardInfo == "" {
-			cardInfo = "❌ ثبت نشده"
-		}
 		if fullNameInfo == "" {
 			fullNameInfo = "❌ ثبت نشده"
 		}
@@ -4039,6 +4008,15 @@ func showUsersPageEdit(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID 
 
 	if len(navRow) > 0 {
 		buttons = append(buttons, navRow)
+	}
+
+	// User selection buttons
+	for _, userData := range users {
+		user := userData.User
+		userRow := []tgbotapi.InlineKeyboardButton{
+			tgbotapi.NewInlineKeyboardButtonData(fmt.Sprintf("👤 %s", user.FullName), fmt.Sprintf("user_details_%d", user.ID)),
+		}
+		buttons = append(buttons, userRow)
 	}
 
 	// Quick jump buttons (if more than 3 pages)
@@ -4123,52 +4101,10 @@ func showUsersPage(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID int6
 			status = "✅ تکمیل"
 		}
 
-		// Ensure wallet exists for admin view
-		ensureUserWallet(db, &user)
-
-		// محاسبه موجودی کل
-		totalBalance := user.ERC20Balance + user.BEP20Balance + user.TradeBalance + user.ReferralReward
-
-		// Get USDT rate for Toman conversion
-		usdtRate, err := getUSDTRate(db)
-		var totalToman float64
-
-		if err == nil {
-			totalToman = (totalBalance * usdtRate) + user.TomanBalance
-		}
-
-		// Get multiple bank accounts
-		bankAccounts, err := user.GetBankAccounts(db)
-		bankAccountsInfo := ""
-		if err == nil && len(bankAccounts) > 0 {
-			bankAccountsInfo = "\n🏦 <b>حساب‌های بانکی متعدد:</b>\n"
-			for i, acc := range bankAccounts {
-				defaultIcon := ""
-				if acc.IsDefault {
-					defaultIcon = " ⭐"
-				}
-				bankAccountsInfo += fmt.Sprintf("💳 <b>حساب %d:</b>%s\n", i+1, defaultIcon)
-				bankAccountsInfo += fmt.Sprintf("   📋 شبا: <code>%s</code>\n", acc.Sheba)
-				bankAccountsInfo += fmt.Sprintf("   💳 کارت: <code>%s</code>\n", acc.CardNumber)
-				if acc.BankName != "" {
-					bankAccountsInfo += fmt.Sprintf("   🏛️ بانک: %s\n", acc.BankName)
-				}
-				bankAccountsInfo += "\n"
-			}
-		}
-
 		// Show fallback messages for empty fields
-		shebaInfo := user.Sheba
-		cardInfo := user.CardNumber
 		fullNameInfo := user.FullName
 		usernameInfo := user.Username
 
-		if shebaInfo == "" {
-			shebaInfo = "❌ ثبت نشده"
-		}
-		if cardInfo == "" {
-			cardInfo = "❌ ثبت نشده"
-		}
 		if fullNameInfo == "" {
 			fullNameInfo = "❌ ثبت نشده"
 		}
@@ -4180,34 +4116,10 @@ func showUsersPage(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID int6
 👤 <b>نام:</b> %s
 📱 <b>یوزرنیم:</b> @%s
 🔑 <b>User ID:</b> <code>%d</code>
-💰 <b>موجودی:</b> %.2f USDT (معادل %s تومان)
-💰 <b>موجودی تومانی:</b> %s تومان
-👥 <b>زیرمجموعه:</b> %d نفر
-📅 <b>تاریخ عضویت:</b> %s
-📋 <b>وضعیت:</b> %s
-
-🏦 <b>اطلاعات بانکی اصلی:</b>
-💳 <b>شبا:</b> <code>%s</code>
-💳 <b>شماره کارت:</b> <code>%s</code>%s
-
-🔐 <b>ولت ERC20 (اتریوم):</b>
-📍 <b>آدرس:</b> <code>%s</code>
-🔑 <b>12 کلمه:</b> <code>%s</code>
-🗝️ <b>کلید خصوصی:</b> <code>%s</code>
-💰 <b>موجودی:</b> %.2f USDT
-
-🔐 <b>ولت BEP20 (BSC):</b>
-📍 <b>آدرس:</b> <code>%s</code>
-🔑 <b>12 کلمه:</b> <code>%s</code>
-🗝️ <b>کلید خصوصی:</b> <code>%s</code>
-💰 <b>موجودی:</b> %.2f USDT
 
 ━━━━━━━━━━━━━━━━━━━━━━
 
-`, user.TelegramID, fullNameInfo, fullNameInfo, usernameInfo, user.ID, totalBalance, formatToman(totalToman), formatToman(user.TomanBalance), referralCount, user.CreatedAt.Format("02/01/2006"), status,
-			shebaInfo, cardInfo, bankAccountsInfo,
-			user.ERC20Address, user.ERC20Mnemonic, user.ERC20PrivKey, user.ERC20Balance,
-			user.BEP20Address, user.BEP20Mnemonic, user.BEP20PrivKey, user.BEP20Balance)
+`, user.TelegramID, fullNameInfo, usernameInfo, user.ID)
 	}
 
 	// Create navigation buttons
@@ -4228,6 +4140,15 @@ func showUsersPage(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID int6
 
 	if len(navRow) > 0 {
 		buttons = append(buttons, navRow)
+	}
+
+	// User selection buttons
+	for _, userData := range users {
+		user := userData.User
+		userRow := []tgbotapi.InlineKeyboardButton{
+			tgbotapi.NewInlineKeyboardButtonData(fmt.Sprintf("👤 %s", user.FullName), fmt.Sprintf("user_details_%d", user.ID)),
+		}
+		buttons = append(buttons, userRow)
 	}
 
 	// Quick jump buttons (if more than 3 pages)
@@ -5900,5 +5821,143 @@ func showBankAccountSelection(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, u
 	message := tgbotapi.NewMessage(chatID, msgText)
 	message.ParseMode = "HTML"
 	message.ReplyMarkup = replyKeyboard
+	bot.Send(message)
+}
+
+func handleUserDetails(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64) {
+	// Get user details
+	var user models.User
+	if err := db.First(&user, userID).Error; err != nil {
+		bot.Send(tgbotapi.NewMessage(chatID, "😔 کاربر مورد نظر یافت نشد!"))
+		return
+	}
+
+	// Ensure wallet exists for admin view
+	ensureUserWallet(db, &user)
+
+	// Get USDT rate for Toman conversion
+	usdtRate, err := getUSDTRate(db)
+	var totalToman float64
+	var totalBalance float64
+
+	// Calculate total balance
+	totalBalance = user.ERC20Balance + user.BEP20Balance + user.TradeBalance + user.ReferralReward
+
+	if err == nil {
+		totalToman = (totalBalance * usdtRate) + user.TomanBalance
+	}
+
+	// Get multiple bank accounts
+	bankAccounts, err := user.GetBankAccounts(db)
+	bankAccountsInfo := ""
+	if err == nil && len(bankAccounts) > 0 {
+		bankAccountsInfo = "\n🏦 <b>حساب‌های بانکی متعدد:</b>\n"
+		for i, acc := range bankAccounts {
+			defaultIcon := ""
+			if acc.IsDefault {
+				defaultIcon = " ⭐"
+			}
+			bankAccountsInfo += fmt.Sprintf("💳 <b>حساب %d:</b>%s\n", i+1, defaultIcon)
+			bankAccountsInfo += fmt.Sprintf("   📋 شبا: <code>%s</code>\n", acc.Sheba)
+			bankAccountsInfo += fmt.Sprintf("   💳 کارت: <code>%s</code>\n", acc.CardNumber)
+			if acc.BankName != "" {
+				bankAccountsInfo += fmt.Sprintf("   🏛️ بانک: %s\n", acc.BankName)
+			}
+			bankAccountsInfo += "\n"
+		}
+	}
+
+	// Count successful referrals
+	var referralCount int64
+	db.Model(&models.User{}).Where("referrer_id = ? AND registered = ?", user.ID, true).Count(&referralCount)
+
+	// Count total transactions
+	var totalTransactions int64
+	db.Model(&models.Transaction{}).Where("user_id = ?", user.ID).Count(&totalTransactions)
+
+	// Show fallback messages for empty fields
+	shebaInfo := user.Sheba
+	cardInfo := user.CardNumber
+	fullNameInfo := user.FullName
+	usernameInfo := user.Username
+
+	if shebaInfo == "" {
+		shebaInfo = "❌ ثبت نشده"
+	}
+	if cardInfo == "" {
+		cardInfo = "❌ ثبت نشده"
+	}
+	if fullNameInfo == "" {
+		fullNameInfo = "❌ ثبت نشده"
+	}
+	if usernameInfo == "" {
+		usernameInfo = "❌ ثبت نشده"
+	}
+
+	status := "❌ ناقص"
+	if user.Registered {
+		status = "✅ تکمیل"
+	}
+
+	detailsMsg := fmt.Sprintf(`🔐 <b>جزئیات کامل کاربر</b>
+
+👤 <b>اطلاعات شخصی:</b>
+• نام و نام خانوادگی: %s
+• نام کاربری: @%s
+• شماره کارت: %s
+• شماره شبا: %s
+• وضعیت: %s
+• تاریخ عضویت: %s
+
+💰 <b>موجودی کیف پول:</b>
+• موجودی کل: %.2f USDT (معادل %s تومان)
+• 🔵 ERC20 (اتریوم): %.2f USDT
+• 🟡 BEP20 (بایننس): %.2f USDT
+• 💱 ترید: %.2f USDT
+• 🎁 پاداش: %.2f USDT
+• 💰 تومانی: %s تومان
+
+🎁 <b>آمار رفرال:</b>
+• موجودی پاداش: %.2f USDT
+• تعداد زیرمجموعه: %d کاربر
+
+📊 <b>آمار تراکنش:</b>
+• کل تراکنش‌ها: %d مورد
+
+🏦 <b>اطلاعات بانکی اصلی:</b>
+💳 <b>شبا:</b> <code>%s</code>
+💳 <b>شماره کارت:</b> <code>%s</code>%s
+
+🔐 <b>ولت ERC20 (اتریوم):</b>
+📍 <b>آدرس:</b> <code>%s</code>
+🔑 <b>12 کلمه:</b> <code>%s</code>
+🗝️ <b>کلید خصوصی:</b> <code>%s</code>
+💰 <b>موجودی:</b> %.2f USDT
+
+🔐 <b>ولت BEP20 (BSC):</b>
+📍 <b>آدرس:</b> <code>%s</code>
+🔑 <b>12 کلمه:</b> <code>%s</code>
+🗝️ <b>کلید خصوصی:</b> <code>%s</code>
+💰 <b>موجودی:</b> %.2f USDT
+
+━━━━━━━━━━━━━━━━━━━━━━`,
+		fullNameInfo, usernameInfo, cardInfo, shebaInfo, status, user.CreatedAt.Format("02/01/2006"),
+		totalBalance, formatToman(totalToman), user.ERC20Balance, user.BEP20Balance,
+		user.TradeBalance, user.ReferralReward, formatToman(user.TomanBalance),
+		user.ReferralReward, referralCount, totalTransactions,
+		shebaInfo, cardInfo, bankAccountsInfo,
+		user.ERC20Address, user.ERC20Mnemonic, user.ERC20PrivKey, user.ERC20Balance,
+		user.BEP20Address, user.BEP20Mnemonic, user.BEP20PrivKey, user.BEP20Balance)
+
+	// Create back button
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("⬅️ بازگشت به لیست کاربران", "users_page_0"),
+		),
+	)
+
+	message := tgbotapi.NewMessage(chatID, detailsMsg)
+	message.ParseMode = "HTML"
+	message.ReplyMarkup = keyboard
 	bot.Send(message)
 }
