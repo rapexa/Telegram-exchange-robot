@@ -2771,7 +2771,10 @@ func showUserInfo(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, user *models.
 	// استفاده از موجودی ذخیره شده در دیتابیس
 	erc20Balance := user.ERC20Balance
 	bep20Balance := user.BEP20Balance
-	totalBalance := erc20Balance + bep20Balance
+	tradeBalance := user.TradeBalance
+	rewardBalance := user.ReferralReward
+	tomanBalance := user.TomanBalance
+	totalBalance := erc20Balance + bep20Balance + tradeBalance + rewardBalance
 
 	// Count successful referrals
 	var referralCount int64
@@ -2780,6 +2783,20 @@ func showUserInfo(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, user *models.
 	// Count total transactions
 	var totalTransactions int64
 	db.Model(&models.Transaction{}).Where("user_id = ?", user.ID).Count(&totalTransactions)
+
+	// Get USDT rate for Toman conversion
+	usdtRate, err := getUSDTRate(db)
+	var tomanInfo string
+	var totalTomanInfo string
+
+	if err == nil {
+		totalToman := (totalBalance * usdtRate) + tomanBalance
+		tomanInfo = fmt.Sprintf(" (معادل %s تومان)", formatToman(totalToman))
+		totalTomanInfo = fmt.Sprintf(" (معادل %s تومان)", formatToman(totalToman))
+	} else {
+		tomanInfo = ""
+		totalTomanInfo = ""
+	}
 
 	info := fmt.Sprintf(`👤 *اطلاعات کاربر*
 
@@ -2791,9 +2808,12 @@ func showUserInfo(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, user *models.
 • وضعیت: ✅ ثبت‌نام شده
 
 💰 *موجودی کیف پول:*
-• موجودی کل: %.2f USDT
+• موجودی کل: %.2f USDT%s
 • 🔵 ERC20 (اتریوم): %.2f USDT
 • 🟡 BEP20 (بایننس): %.2f USDT
+• 💱 ترید: %.2f USDT
+• 🎁 پاداش: %.2f USDT
+• 💰 تومانی: %s تومان
 
 🎁 *آمار رفرال:*
 • موجودی پاداش: %.2f USDT
@@ -2802,9 +2822,10 @@ func showUserInfo(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, user *models.
 📊 *آمار تراکنش:*
 • کل تراکنش‌ها: %d مورد
 
-🎉 *خوش آمدید!* حالا می‌توانی از تمام خدمات ربات استفاده کنید.`,
+🎉 *خوش آمدید!* حالا می‌توانی از تمام خدمات ربات استفاده کنی.`,
 		user.FullName, user.Username, user.CardNumber, user.Sheba,
-		totalBalance, erc20Balance, bep20Balance,
+		totalBalance, totalTomanInfo, erc20Balance, bep20Balance,
+		tradeBalance, rewardBalance, formatToman(tomanBalance),
 		user.ReferralReward, referralCount, totalTransactions)
 
 	message := tgbotapi.NewMessage(chatID, info)
@@ -3059,11 +3080,23 @@ func showMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64)
 	blockchainBalance := erc20Balance + bep20Balance
 	tradeBalance := user.TradeBalance
 	rewardBalance := user.RewardBalance
+	tomanBalance := user.TomanBalance
 	totalBalance := blockchainBalance + tradeBalance + rewardBalance
 
 	// Count successful referrals
 	var referralCount int64
 	db.Model(&models.User{}).Where("referrer_id = ? AND registered = ?", user.ID, true).Count(&referralCount)
+
+	// Get USDT rate for Toman conversion
+	usdtRate, err := getUSDTRate(db)
+	var tomanInfo string
+
+	if err == nil {
+		totalToman := (totalBalance * usdtRate) + tomanBalance
+		tomanInfo = fmt.Sprintf(" (معادل %s تومان)", formatToman(totalToman))
+	} else {
+		tomanInfo = ""
+	}
 
 	menu := tgbotapi.NewReplyKeyboard(
 		tgbotapi.NewKeyboardButtonRow(
@@ -3094,12 +3127,14 @@ func showMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64)
 👋 به ربات صرافی ما خوش اومدی. اینجا می‌تونی به راحتی واریز، برداشت و ترید انجام بدی.
 
 💰 <b>موجودی فعلی شما:</b>
-• کل دارایی: <b>%.2f USDT</b>
+• کل دارایی: <b>%.2f USDT</b>%s
 • بلاکچین: %.2f USDT
 • پاداش: %.2f USDT
+• ترید: %.2f USDT
+• تومانی: %s تومان
 • 👥 زیرمجموعه‌ها: %d نفر
 
-🔻 از منوی زیر یکی از گزینه‌ها رو انتخاب کن یا دستور مورد نظرت رو بنویس.`, user.FullName, totalBalance, blockchainBalance, rewardBalance, referralCount)
+🔻 از منوی زیر یکی از گزینه‌ها رو انتخاب کن یا دستور مورد نظرت رو بنویس.`, user.FullName, totalBalance, tomanInfo, blockchainBalance, rewardBalance, tradeBalance, formatToman(tomanBalance), referralCount)
 
 	msg := tgbotapi.NewMessage(chatID, mainMsg)
 	msg.ReplyMarkup = menu
@@ -3223,6 +3258,17 @@ func showRewardsMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int
 	var referralCount int64
 	db.Model(&models.User{}).Where("referrer_id = ? AND registered = ?", user.ID, true).Count(&referralCount)
 
+	// Get USDT rate for Toman conversion
+	usdtRate, err := getUSDTRate(db)
+	var tomanInfo string
+
+	if err == nil {
+		rewardToman := user.ReferralReward * usdtRate
+		tomanInfo = fmt.Sprintf(" (معادل %s تومان)", formatToman(rewardToman))
+	} else {
+		tomanInfo = ""
+	}
+
 	menu := tgbotapi.NewReplyKeyboard(
 		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("🔗 لینک رفرال"),
@@ -3240,14 +3286,14 @@ func showRewardsMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int
 	// Create reward display message
 	rewardMsg := fmt.Sprintf(`🎁 *منوی پاداش*
 
-💰 *موجودی پاداش:* %.2f USDT
+💰 *موجودی پاداش:* %.2f USDT%s
 👥 *تعداد زیرمجموعه:* %d کاربر
 
 💡 *گزینه‌های موجود:*
 🔗 *لینک رفرال* - دریافت لینک معرفی
 💰 *انتقال پاداش* - انتقال پاداش به کیف پول اصلی
 ⬅️ *بازگشت* - بازگشت به منوی اصلی`,
-		user.ReferralReward, referralCount)
+		user.ReferralReward, tomanInfo, referralCount)
 
 	msg := tgbotapi.NewMessage(chatID, rewardMsg)
 	msg.ReplyMarkup = menu
@@ -3301,6 +3347,18 @@ func showStatsMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64
 	// Calculate total balance
 	totalBalance := erc20Balance + bep20Balance
 
+	// Get USDT rate for Toman conversion
+	usdtRate, err := getUSDTRate(db)
+	var tomanInfo string
+	var totalToman float64
+
+	if err == nil {
+		totalToman = (totalBalance * usdtRate) + user.TomanBalance
+		tomanInfo = fmt.Sprintf(" (معادل %s تومان)", formatToman(totalToman))
+	} else {
+		tomanInfo = ""
+	}
+
 	// Count successful referrals
 	var referralCount int64
 	db.Model(&models.User{}).Where("referrer_id = ? AND registered = ?", user.ID, true).Count(&referralCount)
@@ -3326,8 +3384,9 @@ func showStatsMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64
 	// Create comprehensive stats display message
 	statsMsg := fmt.Sprintf(`📊 *منوی آمار*
 
-💎 *موجودی کل:* %.2f USDT
+💎 *موجودی کل:* %.2f USDT%s
 💰 *موجودی پاداش:* %.2f USDT
+💰 *موجودی تومانی:* %s تومان
 
 📈 *جزئیات موجودی:*
 • 🔵 *ERC20 (اتریوم):* %.2f USDT
@@ -3344,7 +3403,7 @@ func showStatsMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64
 📈 *آمار شخصی* - آمار تراکنش‌ها و موجودی
 👥 *زیرمجموعه‌ها* - لیست کاربران معرفی شده
 ⬅️ *بازگشت* - بازگشت به منوی اصلی`,
-		totalBalance, user.ReferralReward, erc20Balance, bep20Balance, referralCount, user.ReferralReward, totalTransactions)
+		totalBalance, tomanInfo, user.ReferralReward, formatToman(user.TomanBalance), erc20Balance, bep20Balance, referralCount, user.ReferralReward, totalTransactions)
 
 	msg := tgbotapi.NewMessage(chatID, statsMsg)
 	msg.ReplyMarkup = menu
@@ -3743,8 +3802,21 @@ func showPersonalStats(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message)
 	erc20Balance := user.ERC20Balance
 	bep20Balance := user.BEP20Balance
 	tradeBalance := user.TradeBalance
-	rewardBalance := user.RewardBalance
+	rewardBalance := user.RewardReward
+	tomanBalance := user.TomanBalance
 	totalBalance := erc20Balance + bep20Balance + tradeBalance + rewardBalance
+
+	// Get USDT rate for Toman conversion
+	usdtRate, err := getUSDTRate(db)
+	var tomanInfo string
+	var totalToman float64
+
+	if err == nil {
+		totalToman = (totalBalance * usdtRate) + tomanBalance
+		tomanInfo = fmt.Sprintf(" (معادل %s تومان)", formatToman(totalToman))
+	} else {
+		tomanInfo = ""
+	}
 
 	// Count successful referrals
 	var referralCount int64
@@ -3768,11 +3840,12 @@ func showPersonalStats(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message)
 • تاریخ عضویت: %s
 
 💰 *موجودی کیف پول:*
-• موجودی کل: %.4f USDT
+• موجودی کل: %.4f USDT%s
 • 🔵 ERC20 (اتریوم): %.4f USDT
 • 🟡 BEP20 (بایننس): %.4f USDT
 • سود/ضرر ترید: %.4f USDT
 • پاداش: %.4f USDT
+• تومانی: %s تومان
 
 🎁 *آمار رفرال:*
 • تعداد زیرمجموعه: %d کاربر
@@ -3785,8 +3858,8 @@ func showPersonalStats(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message)
 • 🟡 BEP20 برداشت: %d مورد
 • 💵 برداشت تومانی: %d مورد`,
 		user.FullName, user.Username, user.CreatedAt.Format("02/01/2006"),
-		totalBalance, erc20Balance, bep20Balance, tradeBalance, rewardBalance,
-		referralCount, totalTransactions,
+		totalBalance, tomanInfo, erc20Balance, bep20Balance, tradeBalance, rewardBalance,
+		formatToman(tomanBalance), referralCount, totalTransactions,
 		erc20DepositCount, erc20WithdrawCount, bep20DepositCount, bep20WithdrawCount, tomanWithdrawCount)
 
 	message := tgbotapi.NewMessage(msg.Chat.ID, statsMsg)
@@ -5088,6 +5161,8 @@ func showConversionMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID 
 	// Calculate total USDT balance
 	totalUSDT := user.ERC20Balance + user.BEP20Balance + user.TradeBalance + user.RewardBalance
 	totalTomanEquivalent := totalUSDT * usdtRate
+	tomanBalance := user.TomanBalance
+	totalToman := totalTomanEquivalent + tomanBalance
 
 	menu := tgbotapi.NewReplyKeyboard(
 		tgbotapi.NewKeyboardButtonRow(
@@ -5108,13 +5183,15 @@ func showConversionMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID 
 
 💰 <b>موجودی کل شما:</b> %.2f USDT
 💵 <b>معادل تومانی:</b> %s تومان
+💰 <b>موجودی تومانی:</b> %s تومان
+💵 <b>کل دارایی تومانی:</b> %s تومان
 💱 <b>نرخ امروز:</b> %s تومان
 
 💡 <b>گزینه‌های موجود:</b>
 💰 <b>تبدیل USDT به تومان</b> - تبدیل واقعی موجودی
 💱 <b>نرخ لحظه‌ای</b> - مشاهده نرخ فعلی
 ⬅️ <b>بازگشت</b> - بازگشت به منوی اصلی`,
-		totalUSDT, formatToman(totalTomanEquivalent), formatToman(usdtRate))
+		totalUSDT, formatToman(totalTomanEquivalent), formatToman(tomanBalance), formatToman(totalToman), formatToman(usdtRate))
 
 	msg := tgbotapi.NewMessage(chatID, conversionMsg)
 	msg.ReplyMarkup = menu
