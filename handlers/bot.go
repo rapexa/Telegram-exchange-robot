@@ -3938,14 +3938,13 @@ func showUsersPageEdit(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID 
 
 		// Get USDT rate for Toman conversion
 		usdtRate, err := getUSDTRate(db)
-		var totalToman float64
 		var totalBalance float64
 
 		// Calculate total balance
 		totalBalance = user.ERC20Balance + user.BEP20Balance + user.TradeBalance + user.ReferralReward
 
 		if err == nil {
-			totalToman = (totalBalance * usdtRate) + user.TomanBalance
+			totalToman := (totalBalance * usdtRate) + user.TomanBalance
 		}
 
 		// Get multiple bank accounts
@@ -4131,10 +4130,9 @@ func showUsersPage(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID int6
 
 		// Get USDT rate for Toman conversion
 		usdtRate, err := getUSDTRate(db)
-		var totalToman float64
 
 		if err == nil {
-			totalToman = (totalBalance * usdtRate) + user.TomanBalance
+			totalToman := (totalBalance * usdtRate) + user.TomanBalance
 		}
 
 		// Get multiple bank accounts
