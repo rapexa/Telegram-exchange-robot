@@ -4336,15 +4336,66 @@ func showSearchResults(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID 
 
 	offset := page * usersPerPage
 
+	// Rebuild the query with filters for the actual data fetch
+	dataQuery := db.Model(&models.User{})
+	
+	// Debug: Log active filters
+	logInfo("Search filters for admin %d: %+v", adminID, filters)
+	
+	// Reapply all filters to the data query
+	if name, ok := filters["name"].(string); ok && name != "" {
+		dataQuery = dataQuery.Where("full_name LIKE ?", "%"+name+"%")
+		logInfo("Applied name filter: %s", name)
+	}
+	if username, ok := filters["username"].(string); ok && username != "" {
+		dataQuery = dataQuery.Where("username LIKE ?", "%"+username+"%")
+		logInfo("Applied username filter: %s", username)
+	}
+	if telegramID, ok := filters["telegram_id"].(int64); ok {
+		dataQuery = dataQuery.Where("telegram_id = ?", telegramID)
+		logInfo("Applied telegram_id filter: %d", telegramID)
+	}
+	if userID, ok := filters["user_id"].(uint); ok {
+		dataQuery = dataQuery.Where("id = ?", userID)
+		logInfo("Applied user_id filter: %d", userID)
+	}
+	if registered, ok := filters["registered"].(bool); ok {
+		dataQuery = dataQuery.Where("registered = ?", registered)
+		logInfo("Applied registered filter: %t", registered)
+	}
+	if dateFrom, ok := filters["date_from"].(time.Time); ok {
+		dataQuery = dataQuery.Where("created_at >= ?", dateFrom)
+	}
+	if dateTo, ok := filters["date_to"].(time.Time); ok {
+		dataQuery = dataQuery.Where("created_at <= ?", dateTo)
+	}
+	if balanceMin, ok := filters["balance_min"].(float64); ok {
+		dataQuery = dataQuery.Where("(erc20_balance + bep20_balance + trade_balance + reward_balance) >= ?", balanceMin)
+	}
+	if balanceMax, ok := filters["balance_max"].(float64); ok {
+		dataQuery = dataQuery.Where("(erc20_balance + bep20_balance + trade_balance + reward_balance) <= ?", balanceMax)
+	}
+
 	// Single optimized query with LEFT JOIN for referral count
-	query.Table("users").
+	dataQuery = dataQuery.
 		Select("users.*, COALESCE(COUNT(referrals.id), 0) as referral_count").
 		Joins("LEFT JOIN users AS referrals ON referrals.referrer_id = users.id AND referrals.registered = true").
 		Group("users.id").
 		Order("users.created_at desc").
 		Limit(usersPerPage).
-		Offset(offset).
-		Find(&users)
+		Offset(offset)
+	
+	// Debug: Log the final query
+	logInfo("Final query: %s", dataQuery.ToSQL())
+	
+	// Execute the query
+	if err := dataQuery.Find(&users).Error; err != nil {
+		logError("Error fetching users: %v", err)
+		bot.Send(tgbotapi.NewMessage(chatID, "❌ خطا در دریافت اطلاعات کاربران"))
+		return
+	}
+	
+	logInfo("Found %d users", len(users))
 
 	var usersList string
 	usersList = fmt.Sprintf("🔍 <b>نتایج جستجو (صفحه %d از %d)</b>\n", page+1, totalPages)
@@ -4391,6 +4442,15 @@ func showSearchResults(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID 
 	for _, userData := range users {
 		user := userData.User
 
+		// Debug logging
+		logInfo("User data - ID: %d, TelegramID: %d, FullName: '%s', Username: '%s'", 
+			user.ID, user.TelegramID, user.FullName, user.Username)
+		
+		// Additional debug for User ID
+		if user.ID == 0 {
+			logError("User ID is 0 for user: %+v", user)
+		}
+
 		// Show fallback messages for empty fields
 		fullNameInfo := user.FullName
 		if fullNameInfo == "" {
@@ -4400,16 +4460,24 @@ func showSearchResults(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID 
 		usernameInfo := user.Username
 		if usernameInfo == "" {
 			usernameInfo = "❌ ثبت نشده"
+		} else {
+			usernameInfo = "@" + usernameInfo
+		}
+
+		// Ensure User ID is valid
+		userIDDisplay := user.ID
+		if userIDDisplay == 0 {
+			userIDDisplay = 0 // This will show as 0 if ID is missing
 		}
 
 		usersList += fmt.Sprintf(`🆔 <b>%d</b> | %s
 👤 <b>نام:</b> %s
-📱 <b>یوزرنیم:</b> @%s
+📱 <b>یوزرنیم:</b> %s
 🔑 <b>User ID:</b> <code>%d</code>
 
 ━━━━━━━━━━━━━━━━━━━━━━
 
-`, user.TelegramID, fullNameInfo, usernameInfo, user.ID)
+`, user.TelegramID, fullNameInfo, usernameInfo, userIDDisplay)
 	}
 
 	// Create navigation buttons
