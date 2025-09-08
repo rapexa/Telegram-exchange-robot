@@ -100,16 +100,24 @@ func showAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) {
 	helpText := "🛠️ *سلام ادمین عزیز!*\n\n" +
 		"به پنل مدیریت خوش اومدی! 😊\n\n" +
 		"*دستورات سریع برای مدیریت:*\n\n" +
-		"• `/addbalance USER_ID AMOUNT` — افزایش موجودی کاربر\n" +
-		"• `/subbalance USER_ID AMOUNT` — کاهش موجودی کاربر\n" +
-		"• `/setbalance USER_ID AMOUNT` — تنظیم موجودی کاربر\n" +
+		"*💰 مدیریت موجودی USDT:*\n" +
+		"• `/addusdt USER_ID AMOUNT` — افزایش موجودی USDT کاربر\n" +
+		"• `/subusdt USER_ID AMOUNT` — کاهش موجودی USDT کاربر\n" +
+		"• `/setusdt USER_ID AMOUNT` — تنظیم موجودی USDT کاربر\n\n" +
+		"*💵 مدیریت موجودی تومانی:*\n" +
+		"• `/addtoman USER_ID AMOUNT` — افزایش موجودی تومانی کاربر\n" +
+		"• `/subtoman USER_ID AMOUNT` — کاهش موجودی تومانی کاربر\n" +
+		"• `/settoman USER_ID AMOUNT` — تنظیم موجودی تومانی کاربر\n\n" +
+		"*👤 اطلاعات کاربران:*\n" +
 		"• `/userinfo USER_ID` — مشاهده اطلاعات کامل کاربر و کیف پول\n" +
 		"• `/backup` — دریافت فایل پشتیبان دیتابیس (mysqldump)\n" +
 		"• `/simplebackup` — دریافت فایل پشتیبان ساده (Go-based)\n\n" +
+		"*📈 مدیریت ترید:*\n" +
 		"• `/settrade [شماره معامله] [حداقل درصد] [حداکثر درصد]`\n" +
 		"  └ تنظیم بازه سود/ضرر برای هر ترید\n\n" +
 		"• `/trades`\n" +
 		"  └ نمایش رنج‌های فعلی ترید\n\n" +
+		"*💱 مدیریت نرخ‌ها:*\n" +
 		"• `/setrate [ارز] [نرخ به تومان]`\n" +
 		"  └ تنظیم نرخ به تومان برای ارز مشخص\n\n" +
 		"• `/rates`\n" +
@@ -445,14 +453,14 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB, cfg *config.Config) {
 				bot.Send(msg)
 				continue
 			}
-			if update.Message.Command() == "addbalance" {
+			if update.Message.Command() == "addusdt" {
 				args := strings.Fields(update.Message.CommandArguments())
 				if len(args) != 2 {
 					helpMsg := "❌ *فرمت دستور اشتباه!*\n\n" +
 						"📝 *فرمت صحیح:*\n" +
-						"`/addbalance [USER_ID] [AMOUNT]`\n\n" +
+						"`/addusdt [USER_ID] [AMOUNT]`\n\n" +
 						"💡 *مثال:*\n" +
-						"• `/addbalance 123456789 100` - افزایش موجودی کاربر ۱۲۳۴۵۶۷۸۹ به میزان ۱۰۰ USDT\n\n" +
+						"• `/addusdt 123456789 100` - افزایش موجودی USDT کاربر ۱۲۳۴۵۶۷۸۹ به میزان ۱۰۰ USDT\n\n" +
 						"⚠️ *نکات مهم:*\n" +
 						"• USER_ID باید عدد باشد\n" +
 						"• AMOUNT باید عدد مثبت باشد"
@@ -475,17 +483,17 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB, cfg *config.Config) {
 				}
 				user.ERC20Balance += amount
 				db.Save(user)
-				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("✅ *انجام شد!* \n\n🎉 موجودی ERC20 کاربر *%s* (آیدی: `%d`) به میزان *%s* تتر افزایش یافت.", user.FullName, user.TelegramID, formatToman(amount))))
+				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("✅ *انجام شد!* \n\n🎉 موجودی USDT کاربر *%s* (آیدی: `%d`) به میزان *%.2f USDT* افزایش یافت.", user.FullName, user.TelegramID, amount)))
 				continue
 			}
-			if update.Message.Command() == "subbalance" {
+			if update.Message.Command() == "subusdt" {
 				args := strings.Fields(update.Message.CommandArguments())
 				if len(args) != 2 {
 					helpMsg := "❌ *فرمت دستور اشتباه!*\n\n" +
 						"📝 *فرمت صحیح:*\n" +
-						"`/subbalance [USER_ID] [AMOUNT]`\n\n" +
+						"`/subusdt [USER_ID] [AMOUNT]`\n\n" +
 						"💡 *مثال:*\n" +
-						"• `/subbalance 123456789 50` - کاهش موجودی کاربر ۱۲۳۴۵۶۷۸۹ به میزان ۵۰ USDT\n\n" +
+						"• `/subusdt 123456789 50` - کاهش موجودی USDT کاربر ۱۲۳۴۵۶۷۸۹ به میزان ۵۰ USDT\n\n" +
 						"⚠️ *نکات مهم:*\n" +
 						"• USER_ID باید عدد باشد\n" +
 						"• AMOUNT باید عدد مثبت باشد"
@@ -512,17 +520,17 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB, cfg *config.Config) {
 				}
 				user.ERC20Balance -= amount
 				db.Save(user)
-				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("✅ *انجام شد!* \n\n📉 موجودی ERC20 کاربر *%s* (آیدی: `%d`) به میزان *%s* تتر کاهش یافت.", user.FullName, user.TelegramID, formatToman(amount))))
+				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("✅ *انجام شد!* \n\n📉 موجودی USDT کاربر *%s* (آیدی: `%d`) به میزان *%.2f USDT* کاهش یافت.", user.FullName, user.TelegramID, amount)))
 				continue
 			}
-			if update.Message.Command() == "setbalance" {
+			if update.Message.Command() == "setusdt" {
 				args := strings.Fields(update.Message.CommandArguments())
 				if len(args) != 2 {
 					helpMsg := "❌ *فرمت دستور اشتباه!*\n\n" +
 						"📝 *فرمت صحیح:*\n" +
-						"`/setbalance [USER_ID] [AMOUNT]`\n\n" +
+						"`/setusdt [USER_ID] [AMOUNT]`\n\n" +
 						"💡 *مثال:*\n" +
-						"• `/setbalance 123456789 200` - تنظیم موجودی کاربر ۱۲۳۴۵۶۷۸۹ به میزان ۲۰۰ USDT\n\n" +
+						"• `/setusdt 123456789 200` - تنظیم موجودی USDT کاربر ۱۲۳۴۵۶۷۸۹ به میزان ۲۰۰ USDT\n\n" +
 						"⚠️ *نکات مهم:*\n" +
 						"• USER_ID باید عدد باشد\n" +
 						"• AMOUNT باید عدد مثبت باشد"
@@ -545,7 +553,110 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB, cfg *config.Config) {
 				}
 				user.ERC20Balance = amount
 				db.Save(user)
-				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("✅ *تمام!* \n\n🎯 موجودی ERC20 کاربر *%s* (آیدی: `%d`) روی *%s* تتر تنظیم شد.", user.FullName, user.TelegramID, formatToman(amount))))
+				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("✅ *تمام!* \n\n🎯 موجودی USDT کاربر *%s* (آیدی: `%d`) روی *%.2f USDT* تنظیم شد.", user.FullName, user.TelegramID, amount)))
+				continue
+			}
+			if update.Message.Command() == "addtoman" {
+				args := strings.Fields(update.Message.CommandArguments())
+				if len(args) != 2 {
+					helpMsg := "❌ *فرمت دستور اشتباه!*\n\n" +
+						"📝 *فرمت صحیح:*\n" +
+						"`/addtoman [USER_ID] [AMOUNT]`\n\n" +
+						"💡 *مثال:*\n" +
+						"• `/addtoman 123456789 1000000` - افزایش موجودی تومانی کاربر ۱۲۳۴۵۶۷۸۹ به میزان ۱,۰۰۰,۰۰۰ تومان\n\n" +
+						"⚠️ *نکات مهم:*\n" +
+						"• USER_ID باید عدد باشد\n" +
+						"• AMOUNT باید عدد مثبت باشد (تومان)"
+
+					message := tgbotapi.NewMessage(update.Message.Chat.ID, helpMsg)
+					message.ParseMode = "Markdown"
+					bot.Send(message)
+					continue
+				}
+				userID, err1 := strconv.ParseInt(args[0], 10, 64)
+				amount, err2 := strconv.ParseFloat(args[1], 64)
+				if err1 != nil || err2 != nil || amount <= 0 {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "🤔 مقدار یا شناسه کاربر درست نیست. یه چک کن!"))
+					continue
+				}
+				user, err := getUserByTelegramID(db, userID)
+				if err != nil || user == nil {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "😔 این کاربر رو پیدا نکردم!"))
+					continue
+				}
+				user.TomanBalance += amount
+				db.Save(user)
+				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("✅ *انجام شد!* \n\n🎉 موجودی تومانی کاربر *%s* (آیدی: `%d`) به میزان *%s تومان* افزایش یافت.", user.FullName, user.TelegramID, formatToman(amount))))
+				continue
+			}
+			if update.Message.Command() == "subtoman" {
+				args := strings.Fields(update.Message.CommandArguments())
+				if len(args) != 2 {
+					helpMsg := "❌ *فرمت دستور اشتباه!*\n\n" +
+						"📝 *فرمت صحیح:*\n" +
+						"`/subtoman [USER_ID] [AMOUNT]`\n\n" +
+						"💡 *مثال:*\n" +
+						"• `/subtoman 123456789 500000` - کاهش موجودی تومانی کاربر ۱۲۳۴۵۶۷۸۹ به میزان ۵۰۰,۰۰۰ تومان\n\n" +
+						"⚠️ *نکات مهم:*\n" +
+						"• USER_ID باید عدد باشد\n" +
+						"• AMOUNT باید عدد مثبت باشد (تومان)"
+
+					message := tgbotapi.NewMessage(update.Message.Chat.ID, helpMsg)
+					message.ParseMode = "Markdown"
+					bot.Send(message)
+					continue
+				}
+				userID, err1 := strconv.ParseInt(args[0], 10, 64)
+				amount, err2 := strconv.ParseFloat(args[1], 64)
+				if err1 != nil || err2 != nil || amount <= 0 {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "🤔 مقدار یا شناسه کاربر درست نیست. یه چک کن!"))
+					continue
+				}
+				user, err := getUserByTelegramID(db, userID)
+				if err != nil || user == nil {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "😔 این کاربر رو پیدا نکردم!"))
+					continue
+				}
+				if user.TomanBalance < amount {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "😬  موجودی تومانی کافی نیست."))
+					continue
+				}
+				user.TomanBalance -= amount
+				db.Save(user)
+				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("✅ *انجام شد!* \n\n📉 موجودی تومانی کاربر *%s* (آیدی: `%d`) به میزان *%s تومان* کاهش یافت.", user.FullName, user.TelegramID, formatToman(amount))))
+				continue
+			}
+			if update.Message.Command() == "settoman" {
+				args := strings.Fields(update.Message.CommandArguments())
+				if len(args) != 2 {
+					helpMsg := "❌ *فرمت دستور اشتباه!*\n\n" +
+						"📝 *فرمت صحیح:*\n" +
+						"`/settoman [USER_ID] [AMOUNT]`\n\n" +
+						"💡 *مثال:*\n" +
+						"• `/settoman 123456789 2000000` - تنظیم موجودی تومانی کاربر ۱۲۳۴۵۶۷۸۹ به میزان ۲,۰۰۰,۰۰۰ تومان\n\n" +
+						"⚠️ *نکات مهم:*\n" +
+						"• USER_ID باید عدد باشد\n" +
+						"• AMOUNT باید عدد مثبت باشد (تومان)"
+
+					message := tgbotapi.NewMessage(update.Message.Chat.ID, helpMsg)
+					message.ParseMode = "Markdown"
+					bot.Send(message)
+					continue
+				}
+				userID, err1 := strconv.ParseInt(args[0], 10, 64)
+				amount, err2 := strconv.ParseFloat(args[1], 64)
+				if err1 != nil || err2 != nil || amount < 0 {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "🤔 مقدار یا شناسه کاربر درست نیست. یه چک کن!"))
+					continue
+				}
+				user, err := getUserByTelegramID(db, userID)
+				if err != nil || user == nil {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "😔 این کاربر رو پیدا نکردم!"))
+					continue
+				}
+				user.TomanBalance = amount
+				db.Save(user)
+				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("✅ *تمام!* \n\n🎯 موجودی تومانی کاربر *%s* (آیدی: `%d`) روی *%s تومان* تنظیم شد.", user.FullName, user.TelegramID, formatToman(amount))))
 				continue
 			}
 			if update.Message.Command() == "userinfo" {
