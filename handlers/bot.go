@@ -4467,13 +4467,11 @@ func showSearchResults(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID 
 		}
 
 		usersList += fmt.Sprintf(`🆔 <b>%d</b> | %s
-👤 <b>نام:</b> %s
-📱 <b>یوزرنیم:</b> %s
-🔑 <b>User ID:</b> <code>%d</code>
+👤 <b>یوزرنیم:</b> %s
 
 ━━━━━━━━━━━━━━━━━━━━━━
 
-`, user.TelegramID, fullNameInfo, usernameInfo, userIDDisplay)
+`, user.TelegramID, fullNameInfo, usernameInfo)
 	}
 
 	// Create navigation buttons
