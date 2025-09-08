@@ -4382,7 +4382,7 @@ func showSearchResults(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID 
 		Offset(offset)
 
 	// Debug: Log the final query
-	logInfo("Final query: %s", dataQuery.ToSQL())
+	logInfo("Final query: %s", dataQuery.ToSQL(func(tx *gorm.DB) *gorm.DB { return tx }))
 
 	// Execute the query
 	if err := dataQuery.Find(&users).Error; err != nil {
