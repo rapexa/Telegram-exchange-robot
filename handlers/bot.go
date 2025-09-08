@@ -258,10 +258,6 @@ var adminUsersPage = make(map[int64]int) // userID -> current page number
 // Track admin search state
 var adminSearchState = make(map[int64]string)                   // userID -> search state
 var adminSearchFilters = make(map[int64]map[string]interface{}) // userID -> search filters
-// Initialize filters map if it doesn't exist
-if adminSearchFilters[userID] == nil {
-	adminSearchFilters[userID] = make(map[string]interface{})
-}
 
 func logInfo(format string, v ...interface{}) {
 	log.Printf("[INFO] "+format, v...)
@@ -4338,10 +4334,10 @@ func showSearchResults(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID 
 
 	// Rebuild the query with filters for the actual data fetch
 	dataQuery := db.Model(&models.User{})
-	
+
 	// Debug: Log active filters
 	logInfo("Search filters for admin %d: %+v", adminID, filters)
-	
+
 	// Reapply all filters to the data query
 	if name, ok := filters["name"].(string); ok && name != "" {
 		dataQuery = dataQuery.Where("full_name LIKE ?", "%"+name+"%")
@@ -4384,17 +4380,17 @@ func showSearchResults(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID 
 		Order("users.created_at desc").
 		Limit(usersPerPage).
 		Offset(offset)
-	
+
 	// Debug: Log the final query
 	logInfo("Final query: %s", dataQuery.ToSQL())
-	
+
 	// Execute the query
 	if err := dataQuery.Find(&users).Error; err != nil {
 		logError("Error fetching users: %v", err)
 		bot.Send(tgbotapi.NewMessage(chatID, "❌ خطا در دریافت اطلاعات کاربران"))
 		return
 	}
-	
+
 	logInfo("Found %d users", len(users))
 
 	var usersList string
@@ -4443,9 +4439,9 @@ func showSearchResults(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID 
 		user := userData.User
 
 		// Debug logging
-		logInfo("User data - ID: %d, TelegramID: %d, FullName: '%s', Username: '%s'", 
+		logInfo("User data - ID: %d, TelegramID: %d, FullName: '%s', Username: '%s'",
 			user.ID, user.TelegramID, user.FullName, user.Username)
-		
+
 		// Additional debug for User ID
 		if user.ID == 0 {
 			logError("User ID is 0 for user: %+v", user)
