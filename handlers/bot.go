@@ -4275,34 +4275,34 @@ func showSearchResults(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID 
 
 	// Apply filters
 	if name, ok := filters["name"].(string); ok && name != "" {
-		query = query.Where("full_name LIKE ?", "%"+name+"%")
+		query = query.Where("users.full_name LIKE ?", "%"+name+"%")
 	}
 	if username, ok := filters["username"].(string); ok && username != "" {
-		query = query.Where("username LIKE ?", "%"+username+"%")
+		query = query.Where("users.username LIKE ?", "%"+username+"%")
 	}
 	if telegramID, ok := filters["telegram_id"].(int64); ok {
-		query = query.Where("telegram_id = ?", telegramID)
+		query = query.Where("users.telegram_id = ?", telegramID)
 	}
 	if userID, ok := filters["user_id"].(uint); ok {
-		query = query.Where("id = ?", userID)
+		query = query.Where("users.id = ?", userID)
 	}
 	if registered, ok := filters["registered"].(bool); ok {
-		query = query.Where("registered = ?", registered)
+		query = query.Where("users.registered = ?", registered)
 	}
 	if dateFrom, ok := filters["date_from"].(time.Time); ok {
-		query = query.Where("created_at >= ?", dateFrom)
+		query = query.Where("users.created_at >= ?", dateFrom)
 	}
 	if dateTo, ok := filters["date_to"].(time.Time); ok {
-		query = query.Where("created_at <= ?", dateTo)
+		query = query.Where("users.created_at <= ?", dateTo)
 	}
 
 	// Apply balance filters BEFORE pagination
 	if balanceMin, ok := filters["balance_min"].(float64); ok {
 		// Calculate total balance for each user
-		query = query.Where("(erc20_balance + bep20_balance + trade_balance + reward_balance) >= ?", balanceMin)
+		query = query.Where("(users.erc20_balance + users.bep20_balance + users.trade_balance + users.reward_balance) >= ?", balanceMin)
 	}
 	if balanceMax, ok := filters["balance_max"].(float64); ok {
-		query = query.Where("(erc20_balance + bep20_balance + trade_balance + reward_balance) <= ?", balanceMax)
+		query = query.Where("(users.erc20_balance + users.bep20_balance + users.trade_balance + users.reward_balance) <= ?", balanceMax)
 	}
 
 	// Get total count
@@ -4340,36 +4340,36 @@ func showSearchResults(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID 
 
 	// Reapply all filters to the data query
 	if name, ok := filters["name"].(string); ok && name != "" {
-		dataQuery = dataQuery.Where("full_name LIKE ?", "%"+name+"%")
+		dataQuery = dataQuery.Where("users.full_name LIKE ?", "%"+name+"%")
 		logInfo("Applied name filter: %s", name)
 	}
 	if username, ok := filters["username"].(string); ok && username != "" {
-		dataQuery = dataQuery.Where("username LIKE ?", "%"+username+"%")
+		dataQuery = dataQuery.Where("users.username LIKE ?", "%"+username+"%")
 		logInfo("Applied username filter: %s", username)
 	}
 	if telegramID, ok := filters["telegram_id"].(int64); ok {
-		dataQuery = dataQuery.Where("telegram_id = ?", telegramID)
+		dataQuery = dataQuery.Where("users.telegram_id = ?", telegramID)
 		logInfo("Applied telegram_id filter: %d", telegramID)
 	}
 	if userID, ok := filters["user_id"].(uint); ok {
-		dataQuery = dataQuery.Where("id = ?", userID)
+		dataQuery = dataQuery.Where("users.id = ?", userID)
 		logInfo("Applied user_id filter: %d", userID)
 	}
 	if registered, ok := filters["registered"].(bool); ok {
-		dataQuery = dataQuery.Where("registered = ?", registered)
+		dataQuery = dataQuery.Where("users.registered = ?", registered)
 		logInfo("Applied registered filter: %t", registered)
 	}
 	if dateFrom, ok := filters["date_from"].(time.Time); ok {
-		dataQuery = dataQuery.Where("created_at >= ?", dateFrom)
+		dataQuery = dataQuery.Where("users.created_at >= ?", dateFrom)
 	}
 	if dateTo, ok := filters["date_to"].(time.Time); ok {
-		dataQuery = dataQuery.Where("created_at <= ?", dateTo)
+		dataQuery = dataQuery.Where("users.created_at <= ?", dateTo)
 	}
 	if balanceMin, ok := filters["balance_min"].(float64); ok {
-		dataQuery = dataQuery.Where("(erc20_balance + bep20_balance + trade_balance + reward_balance) >= ?", balanceMin)
+		dataQuery = dataQuery.Where("(users.erc20_balance + users.bep20_balance + users.trade_balance + users.reward_balance) >= ?", balanceMin)
 	}
 	if balanceMax, ok := filters["balance_max"].(float64); ok {
-		dataQuery = dataQuery.Where("(erc20_balance + bep20_balance + trade_balance + reward_balance) <= ?", balanceMax)
+		dataQuery = dataQuery.Where("(users.erc20_balance + users.bep20_balance + users.trade_balance + users.reward_balance) <= ?", balanceMax)
 	}
 
 	// Single optimized query with LEFT JOIN for referral count
