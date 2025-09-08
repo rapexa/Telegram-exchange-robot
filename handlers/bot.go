@@ -258,6 +258,10 @@ var adminUsersPage = make(map[int64]int) // userID -> current page number
 // Track admin search state
 var adminSearchState = make(map[int64]string)                   // userID -> search state
 var adminSearchFilters = make(map[int64]map[string]interface{}) // userID -> search filters
+// Initialize filters map if it doesn't exist
+if adminSearchFilters[userID] == nil {
+	adminSearchFilters[userID] = make(map[string]interface{})
+}
 
 func logInfo(format string, v ...interface{}) {
 	log.Printf("[INFO] "+format, v...)
@@ -1131,11 +1135,19 @@ Mnemonic: %s
 					continue
 				}
 				if data == "filter_registered" {
+					// Initialize filters map if it doesn't exist
+					if adminSearchFilters[userID] == nil {
+						adminSearchFilters[userID] = make(map[string]interface{})
+					}
 					adminSearchFilters[userID]["registered"] = true
 					bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "فیلتر کاربران ثبت‌نام شده اعمال شد"))
 					continue
 				}
 				if data == "filter_unregistered" {
+					// Initialize filters map if it doesn't exist
+					if adminSearchFilters[userID] == nil {
+						adminSearchFilters[userID] = make(map[string]interface{})
+					}
 					adminSearchFilters[userID]["registered"] = false
 					bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "فیلتر کاربران ناتمام اعمال شد"))
 					continue
@@ -4045,6 +4057,11 @@ func handleSearchInput(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message)
 	userID := int64(msg.From.ID)
 	state := adminSearchState[userID]
 
+	// Initialize filters map if it doesn't exist
+	if adminSearchFilters[userID] == nil {
+		adminSearchFilters[userID] = make(map[string]interface{})
+	}
+
 	switch state {
 	case "awaiting_name":
 		adminSearchFilters[userID]["name"] = msg.Text
@@ -4123,7 +4140,9 @@ func handleSearchInput(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message)
 func showUserSearchMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID int64) {
 	// Reset search state
 	adminSearchState[adminID] = "search_menu"
-	adminSearchFilters[adminID] = make(map[string]interface{})
+	if adminSearchFilters[adminID] == nil {
+		adminSearchFilters[adminID] = make(map[string]interface{})
+	}
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
@@ -4255,6 +4274,7 @@ func showSearchResults(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID 
 	filters := adminSearchFilters[adminID]
 	if filters == nil {
 		filters = make(map[string]interface{})
+		adminSearchFilters[adminID] = filters
 	}
 
 	// Apply filters
