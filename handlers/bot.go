@@ -36,6 +36,19 @@ var adminUserIDs = []int64{
 	7947533993, // New admin
 }
 
+// Track admin state for broadcast
+var adminState = make(map[int64]string)
+
+var adminBroadcastState = make(map[int64]string) // "awaiting_broadcast", "confirm_broadcast", ""
+var adminBroadcastDraft = make(map[int64]*tgbotapi.Message)
+
+// Track admin users list pagination
+var adminUsersPage = make(map[int64]int) // userID -> current page number
+
+// Track admin search state
+var adminSearchState = make(map[int64]string)                   // userID -> search state
+var adminSearchFilters = make(map[int64]map[string]interface{}) // userID -> search filters
+
 func isAdmin(userID int64) bool {
 	for _, adminID := range adminUserIDs {
 		if userID == adminID {
@@ -245,19 +258,6 @@ func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 	bot.Send(message)
 	return
 }
-
-// Track admin state for broadcast
-var adminState = make(map[int64]string)
-
-var adminBroadcastState = make(map[int64]string) // "awaiting_broadcast", "confirm_broadcast", ""
-var adminBroadcastDraft = make(map[int64]*tgbotapi.Message)
-
-// Track admin users list pagination
-var adminUsersPage = make(map[int64]int) // userID -> current page number
-
-// Track admin search state
-var adminSearchState = make(map[int64]string)                   // userID -> search state
-var adminSearchFilters = make(map[int64]map[string]interface{}) // userID -> search filters
 
 func logInfo(format string, v ...interface{}) {
 	log.Printf("[INFO] "+format, v...)
