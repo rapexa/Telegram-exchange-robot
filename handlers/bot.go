@@ -70,6 +70,7 @@ func showAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) {
 		),
 		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("👥 مشاهده همه کاربران"),
+			tgbotapi.NewKeyboardButton("🔍 جستجوی کاربران"),
 		),
 		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("📢 پیام همگانی"),
@@ -126,6 +127,12 @@ func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 		return
 	}
 
+	// Check if admin is in search mode
+	if adminSearchState[msg.From.ID] != "" && adminSearchState[msg.From.ID] != "search_menu" {
+		handleSearchInput(bot, db, msg)
+		return
+	}
+
 	switch msg.Text {
 	case "📊 آمار کلی":
 		// Show global stats
@@ -147,8 +154,13 @@ func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 		bot.Send(message)
 		return
 	case "👥 مشاهده همه کاربران":
-		adminUsersPage[msg.From.ID] = 0 // Reset to first page
+		adminUsersPage[msg.From.ID] = 0       // Reset to first page
+		adminSearchState[msg.From.ID] = ""    // Clear search state
+		adminSearchFilters[msg.From.ID] = nil // Clear filters
 		showUsersPage(bot, db, msg.Chat.ID, msg.From.ID, 0)
+		return
+	case "🔍 جستجوی کاربران":
+		showUserSearchMenu(bot, db, msg.Chat.ID, msg.From.ID)
 		return
 	case "📢 پیام همگانی":
 		// Set admin state for broadcast
@@ -242,6 +254,10 @@ var adminBroadcastDraft = make(map[int64]*tgbotapi.Message)
 
 // Track admin users list pagination
 var adminUsersPage = make(map[int64]int) // userID -> current page number
+
+// Track admin search state
+var adminSearchState = make(map[int64]string)                   // userID -> search state
+var adminSearchFilters = make(map[int64]map[string]interface{}) // userID -> search filters
 
 func logInfo(format string, v ...interface{}) {
 	log.Printf("[INFO] "+format, v...)
@@ -1077,6 +1093,145 @@ Mnemonic: %s
 						bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "جزئیات کاربر نمایش داده شد"))
 						continue
 					}
+				}
+
+				// Handle search callbacks
+				if data == "search_by_name" {
+					adminSearchState[userID] = "awaiting_name"
+					bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "نام کاربر را وارد کنید"))
+					bot.Send(tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, "🔍 لطفاً نام کامل کاربر را وارد کنید:"))
+					continue
+				}
+				if data == "search_by_username" {
+					adminSearchState[userID] = "awaiting_username"
+					bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "یوزرنیم را وارد کنید"))
+					bot.Send(tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, "📱 لطفاً یوزرنیم کاربر را وارد کنید (بدون @):"))
+					continue
+				}
+				if data == "search_by_telegram_id" {
+					adminSearchState[userID] = "awaiting_telegram_id"
+					bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "تلگرام ID را وارد کنید"))
+					bot.Send(tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, "🆔 لطفاً تلگرام ID کاربر را وارد کنید:"))
+					continue
+				}
+				if data == "search_by_user_id" {
+					adminSearchState[userID] = "awaiting_user_id"
+					bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "User ID را وارد کنید"))
+					bot.Send(tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, "🔑 لطفاً User ID کاربر را وارد کنید:"))
+					continue
+				}
+				if data == "filter_by_balance" {
+					showBalanceFilterMenu(bot, db, update.CallbackQuery.Message.Chat.ID, userID)
+					bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "فیلتر موجودی"))
+					continue
+				}
+				if data == "filter_by_date" {
+					showDateFilterMenu(bot, db, update.CallbackQuery.Message.Chat.ID, userID)
+					bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "فیلتر تاریخ"))
+					continue
+				}
+				if data == "filter_registered" {
+					adminSearchFilters[userID]["registered"] = true
+					bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "فیلتر کاربران ثبت‌نام شده اعمال شد"))
+					continue
+				}
+				if data == "filter_unregistered" {
+					adminSearchFilters[userID]["registered"] = false
+					bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "فیلتر کاربران ناتمام اعمال شد"))
+					continue
+				}
+				if data == "clear_filters" {
+					adminSearchFilters[userID] = make(map[string]interface{})
+					adminSearchState[userID] = "search_menu"
+					bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "فیلترها پاک شدند"))
+					showUserSearchMenu(bot, db, update.CallbackQuery.Message.Chat.ID, userID)
+					continue
+				}
+				if data == "show_search_results" {
+					showSearchResults(bot, db, update.CallbackQuery.Message.Chat.ID, userID, 0)
+					bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "نتایج جستجو"))
+					continue
+				}
+				if data == "back_to_admin" {
+					adminSearchState[userID] = ""
+					adminSearchFilters[userID] = nil
+					showAdminMenu(bot, db, update.CallbackQuery.Message.Chat.ID)
+					bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "بازگشت به پنل ادمین"))
+					continue
+				}
+				if data == "balance_above" {
+					adminSearchState[userID] = "awaiting_balance_min"
+					bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "حداقل موجودی را وارد کنید"))
+					bot.Send(tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, "💰 لطفاً حداقل موجودی را وارد کنید (USDT):"))
+					continue
+				}
+				if data == "balance_below" {
+					adminSearchState[userID] = "awaiting_balance_max"
+					bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "حداکثر موجودی را وارد کنید"))
+					bot.Send(tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, "💸 لطفاً حداکثر موجودی را وارد کنید (USDT):"))
+					continue
+				}
+				if data == "balance_between" {
+					adminSearchState[userID] = "awaiting_balance_min"
+					bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "حداقل موجودی را وارد کنید"))
+					bot.Send(tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, "💰 لطفاً ابتدا حداقل موجودی را وارد کنید (USDT):"))
+					continue
+				}
+				if data == "date_from" {
+					adminSearchState[userID] = "awaiting_date_from"
+					bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "تاریخ شروع را وارد کنید"))
+					bot.Send(tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, "📅 لطفاً تاریخ شروع را وارد کنید (YYYY-MM-DD):"))
+					continue
+				}
+				if data == "date_to" {
+					adminSearchState[userID] = "awaiting_date_to"
+					bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "تاریخ پایان را وارد کنید"))
+					bot.Send(tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, "📅 لطفاً تاریخ پایان را وارد کنید (YYYY-MM-DD):"))
+					continue
+				}
+				if data == "date_between" {
+					adminSearchState[userID] = "awaiting_date_from"
+					bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "تاریخ شروع را وارد کنید"))
+					bot.Send(tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, "📅 لطفاً ابتدا تاریخ شروع را وارد کنید (YYYY-MM-DD):"))
+					continue
+				}
+				if data == "back_to_search" {
+					showUserSearchMenu(bot, db, update.CallbackQuery.Message.Chat.ID, userID)
+					bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "بازگشت به منوی جستجو"))
+					continue
+				}
+				if strings.HasPrefix(data, "search_page_") {
+					pageStr := strings.TrimPrefix(data, "search_page_")
+					page, err := strconv.Atoi(pageStr)
+					if err == nil {
+						showSearchResults(bot, db, update.CallbackQuery.Message.Chat.ID, userID, page)
+						bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, fmt.Sprintf("صفحه %d", page+1)))
+						continue
+					}
+				}
+				if data == "search_current_page" {
+					bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "شما در این صفحه هستید"))
+					continue
+				}
+				if data == "search_new" {
+					adminSearchState[userID] = ""
+					adminSearchFilters[userID] = nil
+					showUserSearchMenu(bot, db, update.CallbackQuery.Message.Chat.ID, userID)
+					bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "جستجوی جدید"))
+					continue
+				}
+				if data == "search_close" {
+					adminSearchState[userID] = ""
+					adminSearchFilters[userID] = nil
+					bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "جستجو بسته شد"))
+					continue
+				}
+				if data == "cancel_search" {
+					adminSearchState[userID] = ""
+					adminSearchFilters[userID] = nil
+					showAdminMenu(bot, db, update.CallbackQuery.Message.Chat.ID)
+					bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "جستجو لغو شد"))
+					continue
 				}
 
 				state := adminBroadcastState[userID]
@@ -3884,6 +4039,418 @@ func confirmBroadcastKeyboard() tgbotapi.InlineKeyboardMarkup {
 			tgbotapi.NewInlineKeyboardButtonData("لغو ارسال", "broadcast_cancel"),
 		),
 	)
+}
+
+func handleSearchInput(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
+	userID := int64(msg.From.ID)
+	state := adminSearchState[userID]
+
+	switch state {
+	case "awaiting_name":
+		adminSearchFilters[userID]["name"] = msg.Text
+		adminSearchState[userID] = "search_menu"
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "✅ نام کاربر ذخیره شد. از منوی جستجو برای اعمال فیلترها استفاده کنید."))
+		showUserSearchMenu(bot, db, msg.Chat.ID, userID)
+
+	case "awaiting_username":
+		adminSearchFilters[userID]["username"] = msg.Text
+		adminSearchState[userID] = "search_menu"
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "✅ یوزرنیم کاربر ذخیره شد. از منوی جستجو برای اعمال فیلترها استفاده کنید."))
+		showUserSearchMenu(bot, db, msg.Chat.ID, userID)
+
+	case "awaiting_telegram_id":
+		if telegramID, err := strconv.ParseInt(msg.Text, 10, 64); err == nil {
+			adminSearchFilters[userID]["telegram_id"] = telegramID
+			adminSearchState[userID] = "search_menu"
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "✅ تلگرام ID کاربر ذخیره شد. از منوی جستجو برای اعمال فیلترها استفاده کنید."))
+			showUserSearchMenu(bot, db, msg.Chat.ID, userID)
+		} else {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ لطفاً یک عدد معتبر برای تلگرام ID وارد کنید."))
+		}
+
+	case "awaiting_user_id":
+		if userIDint, err := strconv.Atoi(msg.Text); err == nil {
+			adminSearchFilters[userID]["user_id"] = uint(userIDint)
+			adminSearchState[userID] = "search_menu"
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "✅ User ID کاربر ذخیره شد. از منوی جستجو برای اعمال فیلترها استفاده کنید."))
+			showUserSearchMenu(bot, db, msg.Chat.ID, userID)
+		} else {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ لطفاً یک عدد معتبر برای User ID وارد کنید."))
+		}
+
+	case "awaiting_balance_min":
+		if amount, err := strconv.ParseFloat(msg.Text, 64); err == nil {
+			adminSearchFilters[userID]["balance_min"] = amount
+			adminSearchState[userID] = "search_menu"
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "✅ حداقل موجودی ذخیره شد. از منوی جستجو برای اعمال فیلترها استفاده کنید."))
+			showUserSearchMenu(bot, db, msg.Chat.ID, userID)
+		} else {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ لطفاً یک عدد معتبر برای حداقل موجودی وارد کنید."))
+		}
+
+	case "awaiting_balance_max":
+		if amount, err := strconv.ParseFloat(msg.Text, 64); err == nil {
+			adminSearchFilters[userID]["balance_max"] = amount
+			adminSearchState[userID] = "search_menu"
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "✅ حداکثر موجودی ذخیره شد. از منوی جستجو برای اعمال فیلترها استفاده کنید."))
+			showUserSearchMenu(bot, db, msg.Chat.ID, userID)
+		} else {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ لطفاً یک عدد معتبر برای حداکثر موجودی وارد کنید."))
+		}
+
+	case "awaiting_date_from":
+		if date, err := time.Parse("2006-01-02", msg.Text); err == nil {
+			adminSearchFilters[userID]["date_from"] = date
+			adminSearchState[userID] = "search_menu"
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "✅ تاریخ شروع ذخیره شد. از منوی جستجو برای اعمال فیلترها استفاده کنید."))
+			showUserSearchMenu(bot, db, msg.Chat.ID, userID)
+		} else {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ لطفاً تاریخ را در فرمت YYYY-MM-DD وارد کنید (مثال: 2024-01-15)."))
+		}
+
+	case "awaiting_date_to":
+		if date, err := time.Parse("2006-01-02", msg.Text); err == nil {
+			adminSearchFilters[userID]["date_to"] = date
+			adminSearchState[userID] = "search_menu"
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "✅ تاریخ پایان ذخیره شد. از منوی جستجو برای اعمال فیلترها استفاده کنید."))
+			showUserSearchMenu(bot, db, msg.Chat.ID, userID)
+		} else {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ لطفاً تاریخ را در فرمت YYYY-MM-DD وارد کنید (مثال: 2024-01-15)."))
+		}
+	}
+}
+
+func showUserSearchMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID int64) {
+	// Reset search state
+	adminSearchState[adminID] = "search_menu"
+	adminSearchFilters[adminID] = make(map[string]interface{})
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🔍 جستجو با نام", "search_by_name"),
+			tgbotapi.NewInlineKeyboardButtonData("📱 جستجو با یوزرنیم", "search_by_username"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🆔 جستجو با تلگرام ID", "search_by_telegram_id"),
+			tgbotapi.NewInlineKeyboardButtonData("🔑 جستجو با User ID", "search_by_user_id"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("💰 فیلتر بر اساس موجودی", "filter_by_balance"),
+			tgbotapi.NewInlineKeyboardButtonData("📅 فیلتر بر اساس تاریخ", "filter_by_date"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("✅ فیلتر کاربران ثبت‌نام شده", "filter_registered"),
+			tgbotapi.NewInlineKeyboardButtonData("❌ فیلتر کاربران ناتمام", "filter_unregistered"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🔄 پاک کردن فیلترها", "clear_filters"),
+			tgbotapi.NewInlineKeyboardButtonData("📋 نمایش نتایج", "show_search_results"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("❌ لغو جستجو", "cancel_search"),
+			tgbotapi.NewInlineKeyboardButtonData("⬅️ بازگشت", "back_to_admin"),
+		),
+	)
+
+	msg := tgbotapi.NewMessage(chatID, `🔍 <b>جستجو و فیلتر کاربران</b>
+
+لطفاً نوع جستجو یا فیلتر مورد نظر خود را انتخاب کنید:
+
+<b>🔍 جستجو:</b>
+• نام کامل کاربر
+• یوزرنیم تلگرام
+• تلگرام ID
+• User ID
+
+<b>💰 فیلتر موجودی:</b>
+• بالای مبلغ مشخص
+• زیر مبلغ مشخص
+• بین دو مبلغ
+
+<b>📅 فیلتر تاریخ:</b>
+• از تاریخ مشخص
+• تا تاریخ مشخص
+• بین دو تاریخ
+
+<b>✅ وضعیت ثبت‌نام:</b>
+• فقط کاربران کامل
+• فقط کاربران ناتمام`)
+	msg.ParseMode = "HTML"
+	msg.ReplyMarkup = keyboard
+	bot.Send(msg)
+}
+
+func showBalanceFilterMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID int64) {
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("💰 بالای مبلغ مشخص", "balance_above"),
+			tgbotapi.NewInlineKeyboardButtonData("💸 زیر مبلغ مشخص", "balance_below"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("📊 بین دو مبلغ", "balance_between"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("❌ لغو جستجو", "cancel_search"),
+			tgbotapi.NewInlineKeyboardButtonData("⬅️ بازگشت", "back_to_search"),
+		),
+	)
+
+	msg := tgbotapi.NewMessage(chatID, `💰 <b>فیلتر بر اساس موجودی</b>
+
+لطفاً نوع فیلتر موجودی را انتخاب کنید:
+
+<b>💰 بالای مبلغ مشخص:</b>
+فقط کاربرانی که موجودی کل آن‌ها بالای مبلغ مشخص است
+
+<b>💸 زیر مبلغ مشخص:</b>
+فقط کاربرانی که موجودی کل آن‌ها زیر مبلغ مشخص است
+
+<b>📊 بین دو مبلغ:</b>
+کاربرانی که موجودی کل آن‌ها بین دو مبلغ مشخص است`)
+	msg.ParseMode = "HTML"
+	msg.ReplyMarkup = keyboard
+	bot.Send(msg)
+}
+
+func showDateFilterMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID int64) {
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("📅 از تاریخ مشخص", "date_from"),
+			tgbotapi.NewInlineKeyboardButtonData("📅 تا تاریخ مشخص", "date_to"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("📊 بین دو تاریخ", "date_between"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("❌ لغو جستجو", "cancel_search"),
+			tgbotapi.NewInlineKeyboardButtonData("⬅️ بازگشت", "back_to_search"),
+		),
+	)
+
+	msg := tgbotapi.NewMessage(chatID, `📅 <b>فیلتر بر اساس تاریخ</b>
+
+لطفاً نوع فیلتر تاریخ را انتخاب کنید:
+
+<b>📅 از تاریخ مشخص:</b>
+کاربرانی که از تاریخ مشخص به بعد ثبت‌نام کرده‌اند
+
+<b>📅 تا تاریخ مشخص:</b>
+کاربرانی که تا تاریخ مشخص ثبت‌نام کرده‌اند
+
+<b>📊 بین دو تاریخ:</b>
+کاربرانی که بین دو تاریخ مشخص ثبت‌نام کرده‌اند
+
+<b>📝 فرمت تاریخ:</b> YYYY-MM-DD (مثال: 2024-01-15)`)
+	msg.ParseMode = "HTML"
+	msg.ReplyMarkup = keyboard
+	bot.Send(msg)
+}
+
+func showSearchResults(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID int64, page int) {
+	const usersPerPage = 5
+
+	// Build query based on filters
+	query := db.Model(&models.User{})
+
+	filters := adminSearchFilters[adminID]
+	if filters == nil {
+		filters = make(map[string]interface{})
+	}
+
+	// Apply filters
+	if name, ok := filters["name"].(string); ok && name != "" {
+		query = query.Where("full_name LIKE ?", "%"+name+"%")
+	}
+	if username, ok := filters["username"].(string); ok && username != "" {
+		query = query.Where("username LIKE ?", "%"+username+"%")
+	}
+	if telegramID, ok := filters["telegram_id"].(int64); ok {
+		query = query.Where("telegram_id = ?", telegramID)
+	}
+	if userID, ok := filters["user_id"].(uint); ok {
+		query = query.Where("id = ?", userID)
+	}
+	if registered, ok := filters["registered"].(bool); ok {
+		query = query.Where("registered = ?", registered)
+	}
+	if dateFrom, ok := filters["date_from"].(time.Time); ok {
+		query = query.Where("created_at >= ?", dateFrom)
+	}
+	if dateTo, ok := filters["date_to"].(time.Time); ok {
+		query = query.Where("created_at <= ?", dateTo)
+	}
+
+	// Apply balance filters BEFORE pagination
+	if balanceMin, ok := filters["balance_min"].(float64); ok {
+		// Calculate total balance for each user
+		query = query.Where("(erc20_balance + bep20_balance + trade_balance + reward_balance) >= ?", balanceMin)
+	}
+	if balanceMax, ok := filters["balance_max"].(float64); ok {
+		query = query.Where("(erc20_balance + bep20_balance + trade_balance + reward_balance) <= ?", balanceMax)
+	}
+
+	// Get total count
+	var totalUsers int64
+	query.Count(&totalUsers)
+
+	if totalUsers == 0 {
+		bot.Send(tgbotapi.NewMessage(chatID, "🔍 هیچ کاربری با این فیلترها پیدا نشد."))
+		return
+	}
+
+	totalPages := int((totalUsers + usersPerPage - 1) / usersPerPage)
+
+	// Validate page number
+	if page < 0 {
+		page = 0
+	}
+	if page >= totalPages {
+		page = totalPages - 1
+	}
+
+	// Get users for current page
+	var users []struct {
+		models.User
+		ReferralCount int64 `gorm:"column:referral_count"`
+	}
+
+	offset := page * usersPerPage
+
+	// Single optimized query with LEFT JOIN for referral count
+	query.Table("users").
+		Select("users.*, COALESCE(COUNT(referrals.id), 0) as referral_count").
+		Joins("LEFT JOIN users AS referrals ON referrals.referrer_id = users.id AND referrals.registered = true").
+		Group("users.id").
+		Order("users.created_at desc").
+		Limit(usersPerPage).
+		Offset(offset).
+		Find(&users)
+
+	var usersList string
+	usersList = fmt.Sprintf("🔍 <b>نتایج جستجو (صفحه %d از %d)</b>\n", page+1, totalPages)
+	usersList += fmt.Sprintf("📊 <b>مجموع:</b> %d کاربر\n", totalUsers)
+	usersList += fmt.Sprintf("⚠️ <b>توجه:</b> اطلاعات محرمانه - برای ادمین\n\n")
+
+	// Show active filters
+	if len(filters) > 0 {
+		usersList += "🔧 <b>فیلترهای فعال:</b>\n"
+		if name, ok := filters["name"].(string); ok && name != "" {
+			usersList += fmt.Sprintf("• نام: %s\n", name)
+		}
+		if username, ok := filters["username"].(string); ok && username != "" {
+			usersList += fmt.Sprintf("• یوزرنیم: %s\n", username)
+		}
+		if telegramID, ok := filters["telegram_id"].(int64); ok {
+			usersList += fmt.Sprintf("• تلگرام ID: %d\n", telegramID)
+		}
+		if userID, ok := filters["user_id"].(uint); ok {
+			usersList += fmt.Sprintf("• User ID: %d\n", userID)
+		}
+		if registered, ok := filters["registered"].(bool); ok {
+			if registered {
+				usersList += "• وضعیت: فقط ثبت‌نام شده\n"
+			} else {
+				usersList += "• وضعیت: فقط ناتمام\n"
+			}
+		}
+		if dateFrom, ok := filters["date_from"].(time.Time); ok {
+			usersList += fmt.Sprintf("• از تاریخ: %s\n", dateFrom.Format("2006-01-02"))
+		}
+		if dateTo, ok := filters["date_to"].(time.Time); ok {
+			usersList += fmt.Sprintf("• تا تاریخ: %s\n", dateTo.Format("2006-01-02"))
+		}
+		if balanceMin, ok := filters["balance_min"].(float64); ok {
+			usersList += fmt.Sprintf("• حداقل موجودی: %.2f USDT\n", balanceMin)
+		}
+		if balanceMax, ok := filters["balance_max"].(float64); ok {
+			usersList += fmt.Sprintf("• حداکثر موجودی: %.2f USDT\n", balanceMax)
+		}
+		usersList += "\n"
+	}
+
+	for _, userData := range users {
+		user := userData.User
+
+		// Show fallback messages for empty fields
+		fullNameInfo := user.FullName
+		if fullNameInfo == "" {
+			fullNameInfo = "❌ ثبت نشده"
+		}
+
+		usernameInfo := user.Username
+		if usernameInfo == "" {
+			usernameInfo = "❌ ثبت نشده"
+		}
+
+		usersList += fmt.Sprintf(`🆔 <b>%d</b> | %s
+👤 <b>نام:</b> %s
+📱 <b>یوزرنیم:</b> @%s
+🔑 <b>User ID:</b> <code>%d</code>
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+`, user.TelegramID, fullNameInfo, usernameInfo, user.ID)
+	}
+
+	// Create navigation buttons
+	var buttons [][]tgbotapi.InlineKeyboardButton
+
+	// Navigation row
+	var navRow []tgbotapi.InlineKeyboardButton
+
+	if page > 0 {
+		navRow = append(navRow, tgbotapi.NewInlineKeyboardButtonData("⬅️ قبلی", fmt.Sprintf("search_page_%d", page-1)))
+	}
+
+	navRow = append(navRow, tgbotapi.NewInlineKeyboardButtonData(fmt.Sprintf("📄 %d/%d", page+1, totalPages), "search_current_page"))
+
+	if page < totalPages-1 {
+		navRow = append(navRow, tgbotapi.NewInlineKeyboardButtonData("➡️ بعدی", fmt.Sprintf("search_page_%d", page+1)))
+	}
+
+	if len(navRow) > 0 {
+		buttons = append(buttons, navRow)
+	}
+
+	// User selection buttons
+	for _, userData := range users {
+		user := userData.User
+		userRow := []tgbotapi.InlineKeyboardButton{
+			tgbotapi.NewInlineKeyboardButtonData(fmt.Sprintf("👤 %s", user.FullName), fmt.Sprintf("user_details_%d", user.ID)),
+		}
+		buttons = append(buttons, userRow)
+	}
+
+	// Quick jump buttons (if more than 3 pages)
+	if totalPages > 3 {
+		var jumpRow []tgbotapi.InlineKeyboardButton
+		jumpRow = append(jumpRow, tgbotapi.NewInlineKeyboardButtonData("🔢 اول", "search_page_0"))
+		if totalPages > 1 {
+			jumpRow = append(jumpRow, tgbotapi.NewInlineKeyboardButtonData("🔢 آخر", fmt.Sprintf("search_page_%d", totalPages-1)))
+		}
+		buttons = append(buttons, jumpRow)
+	}
+
+	// Action buttons
+	actionRow := []tgbotapi.InlineKeyboardButton{
+		tgbotapi.NewInlineKeyboardButtonData("🔄 بروزرسانی", fmt.Sprintf("search_page_%d", page)),
+		tgbotapi.NewInlineKeyboardButtonData("🔍 جستجوی جدید", "search_new"),
+	}
+	buttons = append(buttons, actionRow)
+
+	// Cancel and close buttons
+	cancelRow := []tgbotapi.InlineKeyboardButton{
+		tgbotapi.NewInlineKeyboardButtonData("❌ لغو جستجو", "cancel_search"),
+		tgbotapi.NewInlineKeyboardButtonData("❌ بستن", "search_close"),
+	}
+	buttons = append(buttons, cancelRow)
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(buttons...)
+
+	msg := tgbotapi.NewMessage(chatID, usersList)
+	msg.ParseMode = "HTML"
+	msg.ReplyMarkup = keyboard
+	bot.Send(msg)
 }
 
 func showUsersPageEdit(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID int64, page int, messageID int) {
