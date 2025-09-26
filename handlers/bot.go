@@ -364,7 +364,7 @@ func ProcessReferralRewardsForDeposits(bot *tgbotapi.BotAPI, db *gorm.DB) {
 	}
 
 	processedCount := 0
-	for _, deposit := range deposits {
+	for range deposits {
 		// DISABLED: پاداش رفرال فقط برای تریدها پرداخت می‌شود، نه برای واریز
 		// calculateReferralRewards(bot, db, deposit.UserID, deposit.Amount, "deposit")
 		processedCount++
