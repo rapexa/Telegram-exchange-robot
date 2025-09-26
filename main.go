@@ -134,6 +134,11 @@ func main() {
 		logInfo("✅ User balances updated successfully")
 	}
 
+	// DISABLED: پاداش رفرال فقط برای تریدها پرداخت می‌شود، نه برای واریز
+	// Referral rewards are only given when users perform TRADES, not deposits or withdrawals
+	// logInfo("🎁 Processing referral rewards for existing deposits...")
+	// handlers.ProcessReferralRewardsForDeposits(bot, db)
+
 	// Run blockchain deposit sync once at startup
 	err = models.SyncAllUserDeposits(db, cfg.EtherscanAPIKey)
 	if err != nil {

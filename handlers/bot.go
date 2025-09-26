@@ -279,6 +279,100 @@ func logDebug(format string, v ...interface{}) {
 	log.Printf("[DEBUG] "+format, v...)
 }
 
+// calculateReferralRewards calculates and distributes referral rewards for a transaction
+// IMPORTANT: This function ONLY processes rewards for TRADES, not for deposits or withdrawals
+// Referral rewards are only given when users perform trading operations in the bot
+func calculateReferralRewards(bot *tgbotapi.BotAPI, db *gorm.DB, userID uint, amount float64, transactionType string) {
+	// Get the user who made the transaction
+	var user models.User
+	if err := db.First(&user, userID).Error; err != nil {
+		logError("Failed to get user for referral rewards: %v", err)
+		return
+	}
+
+	// Only process if user has a referrer
+	if user.ReferrerID == nil {
+		return
+	}
+
+	// CRITICAL: Only process referral rewards for TRADES
+	// Deposits and withdrawals do NOT generate referral rewards
+	if transactionType != "trade" {
+		logDebug("Skipping referral rewards for %s - only trades generate rewards", transactionType)
+		return
+	}
+
+	// Level 1 Referrer (Direct referrer)
+	var referrer1 models.User
+	if err := db.First(&referrer1, *user.ReferrerID).Error; err == nil {
+		// Check if referrer has 20+ direct referrals for special plan
+		var count int64
+		db.Model(&models.User{}).Where("referrer_id = ? AND registered = ?", referrer1.ID, true).Count(&count)
+
+		// Set commission percentage based on plan
+		percent := 0.5 // Default 0.5%
+		if count >= 20 {
+			percent = 0.6 // Special plan: 0.6%
+			if !referrer1.PlanUpgradedNotified {
+				bot.Send(tgbotapi.NewMessage(referrer1.TelegramID, "🏆 تبریک! شما به خاطر داشتن ۲۰ زیرمجموعه فعال، درصد پاداش Level 1 شما به ۰.۶٪ افزایش یافت."))
+				referrer1.PlanUpgradedNotified = true
+			}
+		}
+
+		// Calculate and add reward
+		reward1 := amount * percent / 100
+		referrer1.ReferralReward += reward1
+		db.Save(&referrer1)
+
+		// Send notification to referrer
+		// Note: At this point we know it's a trade because we checked above
+		actionText := "معامله"
+
+		bot.Send(tgbotapi.NewMessage(referrer1.TelegramID,
+			fmt.Sprintf("🎉 شما به خاطر %s زیرمجموعه‌تان %s مبلغ %.4f USDT پاداش گرفتید!",
+				actionText, user.FullName, reward1)))
+
+		// Level 2 Referrer (Indirect referrer)
+		if referrer1.ReferrerID != nil {
+			var referrer2 models.User
+			if err := db.First(&referrer2, *referrer1.ReferrerID).Error; err == nil {
+				reward2 := amount * 0.25 / 100 // 0.25% for level 2
+				referrer2.ReferralReward += reward2
+				db.Save(&referrer2)
+
+				// Send notification to level 2 referrer
+				bot.Send(tgbotapi.NewMessage(referrer2.TelegramID,
+					fmt.Sprintf("🎉 شما به خاطر %s زیرمجموعه غیرمستقیم %s مبلغ %.4f USDT پاداش گرفتید!",
+						actionText, user.FullName, reward2)))
+			}
+		}
+	}
+}
+
+// ProcessReferralRewardsForDeposits processes referral rewards for all existing deposits
+// NOTE: This function is currently DISABLED because referral rewards are only given for TRADES
+// Deposits and withdrawals do NOT generate referral rewards
+func ProcessReferralRewardsForDeposits(bot *tgbotapi.BotAPI, db *gorm.DB) {
+	logInfo("Processing referral rewards for existing deposits...")
+
+	// Get all confirmed deposits that haven't had referral rewards processed
+	var deposits []models.Transaction
+	err := db.Where("type = ? AND status = ? AND network IN (?)", "deposit", "confirmed", []string{"ERC20", "BEP20"}).Find(&deposits).Error
+	if err != nil {
+		logError("Failed to get deposits for referral processing: %v", err)
+		return
+	}
+
+	processedCount := 0
+	for _, deposit := range deposits {
+		// DISABLED: پاداش رفرال فقط برای تریدها پرداخت می‌شود، نه برای واریز
+		// calculateReferralRewards(bot, db, deposit.UserID, deposit.Amount, "deposit")
+		processedCount++
+	}
+
+	logInfo("Processed referral rewards for %d deposits (DISABLED - only trades generate rewards)", processedCount)
+}
+
 func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB, cfg *config.Config) {
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
@@ -1012,43 +1106,10 @@ Mnemonic: %s
 					}
 					db.Create(&tradeResult)
 
-					// بعد از ذخیره نتیجه ترید (tradeResult) و قبل از ارسال پیام نتیجه به کاربر:
-					// --- Referral reward logic ---
-					tradeAmount := lastAmount
-					userPtr, _ := getUserByTelegramID(db, int64(tx.UserID))
-					if userPtr != nil {
-						user := userPtr
-						if user != nil && user.ReferrerID != nil {
-							var referrer1 models.User
-							if err := db.First(&referrer1, *user.ReferrerID).Error; err == nil {
-								// پلن ویژه: اگر 20 زیرمجموعه مستقیم دارد
-								var count int64
-								db.Model(&models.User{}).Where("referrer_id = ? AND registered = ?", referrer1.ID, true).Count(&count)
-								percent := 0.5
-								if count >= 20 {
-									percent = 0.6
-									if !referrer1.PlanUpgradedNotified {
-										bot.Send(tgbotapi.NewMessage(referrer1.TelegramID, "🏆 تبریک! شما به خاطر داشتن ۲۰ زیرمجموعه فعال، درصد پاداش Level 1 شما به ۰.۶٪ افزایش یافت."))
-										referrer1.PlanUpgradedNotified = true
-									}
-								}
-								reward1 := tradeAmount * percent / 100
-								referrer1.ReferralReward += reward1
-								db.Save(&referrer1)
-								bot.Send(tgbotapi.NewMessage(referrer1.TelegramID, fmt.Sprintf("🎉 شما به خاطر معامله زیرمجموعه‌تان %s مبلغ %.4f USDT پاداش گرفتید!", user.FullName, reward1)))
-							}
-							// Level 2
-							if referrer1.ReferrerID != nil {
-								var referrer2 models.User
-								if err := db.First(&referrer2, *referrer1.ReferrerID).Error; err == nil {
-									reward2 := tradeAmount * 0.25 / 100
-									referrer2.ReferralReward += reward2
-									db.Save(&referrer2)
-									bot.Send(tgbotapi.NewMessage(referrer2.TelegramID, fmt.Sprintf("🎉 شما به خاطر معامله زیرمجموعه غیرمستقیم %s مبلغ %.4f USDT پاداش گرفتید!", user.FullName, reward2)))
-								}
-							}
-						}
-					}
+					// محاسبه پاداش رفرال برای معامله
+					// IMPORTANT: Referral rewards are ONLY given for TRADES
+					// Deposits and withdrawals do NOT generate referral rewards
+					calculateReferralRewards(bot, db, tx.UserID, lastAmount, "trade")
 					// پیام به کاربر: بعد از ۳۰ دقیقه نتیجه را ارسال کن
 					go func(chatID int64, amount float64, percent float64, resultAmount float64, tradeIndex int) {
 						time.Sleep(30 * time.Minute)
@@ -1380,6 +1441,9 @@ Mnemonic: %s
 									bankName, bankAccount.Sheba, bankAccount.CardNumber)
 							}
 						}
+
+						// DISABLED: پاداش رفرال فقط برای تریدها پرداخت می‌شود، نه برای برداشت
+						// Referral rewards are ONLY given for TRADES, not for withdrawals
 
 						// پیام مرحله 2 به کاربر: "درخواست بررسی شد"
 						var userMsg string
@@ -3541,6 +3605,10 @@ func showRewardsMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int
 	var referralCount int64
 	db.Model(&models.User{}).Where("referrer_id = ? AND registered = ?", user.ID, true).Count(&referralCount)
 
+	// Get detailed referral information
+	var directReferrals []models.User
+	db.Where("referrer_id = ? AND registered = ?", user.ID, true).Find(&directReferrals)
+
 	// Get USDT rate for Toman conversion
 	usdtRate, err := getUSDTRate(db)
 	var tomanInfo string
@@ -3566,17 +3634,50 @@ func showRewardsMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int
 	menu.ResizeKeyboard = true
 	menu.OneTimeKeyboard = false
 
+	// Calculate commission details
+	var commissionDetails string
+	if len(directReferrals) > 0 {
+		commissionDetails = "\n\n📊 *جزئیات کمیسیون:*\n"
+
+		// Show commission rates with clear explanation
+		commissionDetails += "• لایه 1 (مستقیم): 0.5% (20+ زیرمجموعه: 0.6%)\n"
+		commissionDetails += "• لایه 2 (غیرمستقیم): 0.25%\n\n"
+
+		// Important note about when rewards are given
+		commissionDetails += "⚠️ *نکته مهم:*\n"
+		commissionDetails += "پاداش رفرال فقط برای *معاملات* زیرمجموعه‌ها پرداخت می‌شود.\n"
+		commissionDetails += "واریز و برداشت پاداش رفرال ندارند!\n\n"
+
+		// Show recent referrals with their activity
+		commissionDetails += "👥 *زیرمجموعه‌های اخیر:*\n"
+		for i, referral := range directReferrals {
+			if i >= 5 { // Show only last 5
+				commissionDetails += fmt.Sprintf("• و %d نفر دیگر...\n", len(directReferrals)-5)
+				break
+			}
+			commissionDetails += fmt.Sprintf("• %s (آیدی: %d)\n", referral.FullName, referral.TelegramID)
+		}
+	} else {
+		// Show explanation even if no referrals yet
+		commissionDetails = "\n\n📊 *نحوه کسب پاداش:*\n"
+		commissionDetails += "• لایه 1 (مستقیم): 0.5% (20+ زیرمجموعه: 0.6%)\n"
+		commissionDetails += "• لایه 2 (غیرمستقیم): 0.25%\n\n"
+		commissionDetails += "⚠️ *نکته مهم:*\n"
+		commissionDetails += "پاداش رفرال فقط برای *معاملات* زیرمجموعه‌ها پرداخت می‌شود.\n"
+		commissionDetails += "واریز و برداشت پاداش رفرال ندارند!\n"
+	}
+
 	// Create reward display message
 	rewardMsg := fmt.Sprintf(`🎁 *منوی پاداش*
 
 💰 *موجودی پاداش:* %.2f USDT%s
-👥 *تعداد زیرمجموعه:* %d کاربر
+👥 *تعداد زیرمجموعه:* %d کاربر%s
 
 💡 *گزینه‌های موجود:*
 🔗 *لینک رفرال* - دریافت لینک معرفی
 💰 *انتقال پاداش* - انتقال پاداش به کیف پول اصلی
 ⬅️ *بازگشت* - بازگشت به منوی اصلی`,
-		user.ReferralReward, tomanInfo, referralCount)
+		user.ReferralReward, tomanInfo, referralCount, commissionDetails)
 
 	msg := tgbotapi.NewMessage(chatID, rewardMsg)
 	msg.ReplyMarkup = menu
@@ -3802,8 +3903,16 @@ func handleReferralLink(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message
 • تعداد زیرمجموعه: %d کاربر
 • موجودی پاداش: %.2f USDT
 
-💡 *نحوه استفاده:*
-توضیحات نحوه استفاده به زودی اضافه میشود.`,
+💡 *نحوه کسب پاداش:*
+• لایه 1 (مستقیم): 0.5%% (20+ زیرمجموعه: 0.6%%)
+• لایه 2 (غیرمستقیم): 0.25%%
+
+⚠️ *نکته مهم:*
+پاداش رفرال فقط برای *معاملات* زیرمجموعه‌ها پرداخت می‌شود.
+واریز و برداشت پاداش رفرال ندارند!
+
+🎯 *برای کسب پاداش:*
+زیرمجموعه‌های شما باید در ربات *معامله* کنند.`,
 		refLink, count, user.ReferralReward)
 
 	message := tgbotapi.NewMessage(msg.Chat.ID, msgText)
