@@ -121,11 +121,7 @@ func SyncAllUserDeposits(db *gorm.DB, apiKey string) error {
 							user.ERC20Balance += amountFloat
 							db.Save(&user)
 
-							// محاسبه پاداش رفرال برای واریز
-							if bot != nil {
-								// We need to import the handlers package to call calculateReferralRewards
-								// This will be handled by calling the function from handlers package
-							}
+							// پاداش رفرال فقط برای تریدها پرداخت می‌شود، نه برای واریز
 						} else {
 							fmt.Printf("[DEBUG] ERC20 DEPOSIT: user_id=%d, address=%s, tx=%s, amount=%.6f -> SKIPPED (exists)\n", user.ID, user.ERC20Address, txHash, amountFloat)
 						}
@@ -184,11 +180,7 @@ func SyncAllUserDeposits(db *gorm.DB, apiKey string) error {
 							user.BEP20Balance += amountFloat
 							db.Save(&user)
 
-							// محاسبه پاداش رفرال برای واریز
-							if bot != nil {
-								// We need to import the handlers package to call calculateReferralRewards
-								// This will be handled by calling the function from handlers package
-							}
+							// پاداش رفرال فقط برای تریدها پرداخت می‌شود، نه برای واریز
 						} else {
 							fmt.Printf("[DEBUG] BEP20 DEPOSIT: user_id=%d, address=%s, tx=%s, amount=%.6f -> SKIPPED (exists)\n", user.ID, user.BEP20Address, txHash, amountFloat)
 						}
