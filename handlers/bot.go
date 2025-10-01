@@ -282,6 +282,11 @@ func logDebug(format string, v ...interface{}) {
 // calculateReferralRewards calculates and distributes referral rewards for a transaction
 // IMPORTANT: This function ONLY processes rewards for TRADES, not for deposits or withdrawals
 // Referral rewards are only given when users perform trading operations in the bot
+//
+// NOTE: Since each deposit generates 3 trades, the commission rates are divided by 3:
+// - Level 1: 0.167% per trade (0.5% total after 3 trades)
+// - Level 2: 0.083% per trade (0.25% total after 3 trades)
+// - Special plan (20+ referrals): 0.2% per trade (0.6% total after 3 trades)
 func calculateReferralRewards(bot *tgbotapi.BotAPI, db *gorm.DB, userID uint, amount float64, transactionType string) {
 	// Get the user who made the transaction
 	var user models.User
@@ -310,11 +315,12 @@ func calculateReferralRewards(bot *tgbotapi.BotAPI, db *gorm.DB, userID uint, am
 		db.Model(&models.User{}).Where("referrer_id = ? AND registered = ?", referrer1.ID, true).Count(&count)
 
 		// Set commission percentage based on plan
-		percent := 0.5 // Default 0.5%
+		// تقسیم بر 3 چون هر واریز 3 ترید داره
+		percent := 0.167 // Default 0.167% (0.5% ÷ 3)
 		if count >= 20 {
-			percent = 0.6 // Special plan: 0.6%
+			percent = 0.2 // Special plan: 0.2% (0.6% ÷ 3)
 			if !referrer1.PlanUpgradedNotified {
-				bot.Send(tgbotapi.NewMessage(referrer1.TelegramID, "🏆 تبریک! شما به خاطر داشتن ۲۰ زیرمجموعه فعال، درصد پاداش Level 1 شما به ۰.۶٪ افزایش یافت."))
+				bot.Send(tgbotapi.NewMessage(referrer1.TelegramID, "🏆 تبریک! شما به خاطر داشتن ۲۰ زیرمجموعه فعال، درصد پاداش Level 1 شما به ۰.۲٪ (مجموع ۰.۶٪ در ۳ ترید) افزایش یافت."))
 				referrer1.PlanUpgradedNotified = true
 			}
 		}
@@ -336,7 +342,7 @@ func calculateReferralRewards(bot *tgbotapi.BotAPI, db *gorm.DB, userID uint, am
 		if referrer1.ReferrerID != nil {
 			var referrer2 models.User
 			if err := db.First(&referrer2, *referrer1.ReferrerID).Error; err == nil {
-				reward2 := amount * 0.25 / 100 // 0.25% for level 2
+				reward2 := amount * 0.083 / 100 // 0.083% for level 2 (0.25% ÷ 3)
 				referrer2.ReferralReward += reward2
 				db.Save(&referrer2)
 
