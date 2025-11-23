@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"log"
 	"os"
 	"strings"
@@ -34,7 +35,9 @@ func initLogger() {
 	if err != nil {
 		log.Printf("WARNING: Could not open log file: %v", err)
 	} else {
-		log.SetOutput(logFile)
+		// Write to both file and stdout
+		multiWriter := io.MultiWriter(os.Stdout, logFile)
+		log.SetOutput(multiWriter)
 	}
 }
 
@@ -187,7 +190,11 @@ func main() {
 	}()
 
 	// Start auto USDT price update service (every 3 minutes)
-	go models.AutoUpdateUSDTPrice(db, 3*time.Minute)
+	go func() {
+		// Wait a bit before starting to ensure everything is initialized
+		time.Sleep(5 * time.Second)
+		models.AutoUpdateUSDTPrice(db, 3*time.Minute)
+	}()
 	logInfo("✅ Auto USDT price update service started (updates every 3 minutes from Nobitex)")
 
 	handlers.StartBot(bot, db, cfg)

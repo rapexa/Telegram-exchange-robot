@@ -102,8 +102,12 @@ func UpdateUSDTRateInDB(db *gorm.DB, price float64) error {
 func AutoUpdateUSDTPrice(db *gorm.DB, interval time.Duration) {
 	log.Printf("[EXCHANGE] Starting auto USDT price update service (interval: %v)", interval)
 
-	// Run immediately on startup
-	updatePrice(db)
+	// Run immediately on startup (in goroutine to not block)
+	go func() {
+		// Wait a bit for database to be fully ready
+		time.Sleep(2 * time.Second)
+		updatePrice(db)
+	}()
 
 	// Then run every interval
 	ticker := time.NewTicker(interval)
@@ -116,12 +120,20 @@ func AutoUpdateUSDTPrice(db *gorm.DB, interval time.Duration) {
 
 // updatePrice fetches price from Nobitex and updates database
 func updatePrice(db *gorm.DB) {
+	// Recover from any panic
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[EXCHANGE] ❌ Panic in updatePrice: %v", r)
+		}
+	}()
+
 	// Get old price for logging
 	var oldRate Rate
 	var oldPrice float64
-	db.Where("asset = ?", "USDT").First(&oldRate)
-	if oldRate.ID != 0 {
-		oldPrice = oldRate.Value
+	if err := db.Where("asset = ?", "USDT").First(&oldRate).Error; err == nil {
+		if oldRate.ID != 0 {
+			oldPrice = oldRate.Value
+		}
 	}
 
 	price, err := GetUSDTPriceFromNobitex()
