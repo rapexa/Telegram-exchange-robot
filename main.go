@@ -186,5 +186,9 @@ func main() {
 		}
 	}()
 
+	// Start auto USDT price update service (every 3 minutes)
+	go models.AutoUpdateUSDTPrice(db, 3*time.Minute)
+	logInfo("✅ Auto USDT price update service started (updates every 3 minutes from Nobitex)")
+
 	handlers.StartBot(bot, db, cfg)
 }
