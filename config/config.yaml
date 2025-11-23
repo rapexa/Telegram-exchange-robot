@@ -6,7 +6,7 @@ mysql:
   dbname: "telegram_exchange_bot"
 
 telegram:
-  token: "7754266447:AAGM-6kTViQxfYrwpGB3hHMSbEFcvyPrDos"
+  token: "8323841909:AAEfAGnrIOzqpRCdF-Mxf64dIaQF4g_QbLk"
   debug: true
 
 etherscan_api_key: "QNXASCFWV8NMQ95FKW482Z5N86PA52VBSM"
