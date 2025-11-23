@@ -188,6 +188,33 @@ func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 		return
 	}
 
+	// Handle admin management menu buttons (check before switch to ensure they're caught)
+	if msg.Text == "⚙️ تنظیم دسترسی‌ها" {
+		// Check if user is super admin
+		admin, _ := models.GetAdminByTelegramID(db, msg.From.ID)
+		if admin == nil || !admin.IsSuperAdmin {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ شما دسترسی به این بخش ندارید!"))
+			return
+		}
+		// Show list of admins to select from
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "👥 لطفاً از لیست زیر ادمین مورد نظر را انتخاب کنید:"))
+		showAllAdmins(bot, db, msg.Chat.ID)
+		return
+	}
+
+	if msg.Text == "❌ غیرفعال کردن ادمین" {
+		// Check if user is super admin
+		admin, _ := models.GetAdminByTelegramID(db, msg.From.ID)
+		if admin == nil || !admin.IsSuperAdmin {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ شما دسترسی به این بخش ندارید!"))
+			return
+		}
+		// Show list of admins to select from
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "👥 لطفاً از لیست زیر ادمین مورد نظر را انتخاب کنید:"))
+		showAllAdmins(bot, db, msg.Chat.ID)
+		return
+	}
+
 	switch msg.Text {
 	case "📊 آمار کلی":
 		// Check permission
@@ -314,28 +341,6 @@ func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ شما دسترسی به این بخش ندارید!"))
 			return
 		}
-		showAllAdmins(bot, db, msg.Chat.ID)
-		return
-	case "⚙️ تنظیم دسترسی‌ها":
-		// Check if user is super admin
-		admin, _ := models.GetAdminByTelegramID(db, msg.From.ID)
-		if admin == nil || !admin.IsSuperAdmin {
-			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ شما دسترسی به این بخش ندارید!"))
-			return
-		}
-		// Show list of admins to select from
-		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "👥 لطفاً ابتدا لیست ادمین‌ها را مشاهده کنید و از آنجا ادمین مورد نظر را انتخاب کنید:"))
-		showAllAdmins(bot, db, msg.Chat.ID)
-		return
-	case "❌ غیرفعال کردن ادمین":
-		// Check if user is super admin
-		admin, _ := models.GetAdminByTelegramID(db, msg.From.ID)
-		if admin == nil || !admin.IsSuperAdmin {
-			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ شما دسترسی به این بخش ندارید!"))
-			return
-		}
-		// Show list of admins to select from
-		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "👥 لطفاً از لیست زیر ادمین مورد نظر را انتخاب کنید:"))
 		showAllAdmins(bot, db, msg.Chat.ID)
 		return
 	case "➕ افزودن ادمین جدید":
