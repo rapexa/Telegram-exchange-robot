@@ -3,7 +3,7 @@ package models
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
 	"strconv"
@@ -31,7 +31,7 @@ func GetUSDTPriceFromNobitex() (float64, error) {
 	}
 	defer resp.Body.Close()
 
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return 0, fmt.Errorf("failed to read response: %v", err)
 	}
@@ -70,7 +70,7 @@ func GetUSDTPriceFromNobitex() (float64, error) {
 	}
 
 	avg := sum / count
-	avgToman := (avg / 10) + 1000 // Convert Rial to Toman
+	avgToman := avg / 10 // Convert Rial to Toman (1 Toman = 10 Rial)
 
 	log.Printf("[EXCHANGE] USDT Price from Nobitex: %.0f Rial (%.0f Toman)", avg, avgToman)
 
