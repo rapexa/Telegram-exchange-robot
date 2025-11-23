@@ -2324,10 +2324,15 @@ Mnemonic: %s
 
 				// Handle permission toggle callbacks
 				if strings.HasPrefix(data, "toggle_perm_") {
-					parts := strings.Split(strings.TrimPrefix(data, "toggle_perm_"), "_")
-					if len(parts) == 2 {
-						adminIDstr := parts[0]
-						permName := parts[1]
+					// Format: toggle_perm_{adminID}_{permission}
+					// Example: toggle_perm_2_set_usdt_rate
+					rest := strings.TrimPrefix(data, "toggle_perm_")
+					// Find first underscore to separate adminID from permission
+					firstUnderscore := strings.Index(rest, "_")
+					if firstUnderscore > 0 {
+						adminIDstr := rest[:firstUnderscore]
+						permName := rest[firstUnderscore+1:]
+
 						adminIDint, err := strconv.Atoi(adminIDstr)
 						if err == nil {
 							// Check if current user is super admin
@@ -7606,7 +7611,18 @@ func showAdminPermissionsMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, a
 	// Get all available permissions
 	allPermissions := models.GetAllPermissions()
 
-	// Build message
+	// Build permissions list with current status
+	var currentPermsList string
+	if len(permissions) == 0 {
+		currentPermsList = "❌ هیچ دسترسی خاصی ندارد"
+	} else {
+		currentPermsList = ""
+		for _, perm := range permissions {
+			currentPermsList += fmt.Sprintf("• %s\n", models.GetPermissionDescription(perm))
+		}
+	}
+
+	// Build message with explanation
 	msgText := fmt.Sprintf(`⚙️ <b>تنظیم دسترسی‌های ادمین</b>
 
 👤 <b>ادمین:</b> %s
@@ -7614,12 +7630,31 @@ func showAdminPermissionsMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, a
 📊 <b>وضعیت:</b> %s
 
 <b>دسترسی‌های فعلی:</b>
+%s
+
+💡 <b>راهنما:</b>
+روی هر دکمه کلیک کنید تا دسترسی را فعال/غیرفعال کنید.
+✅ = دسترسی فعال
+❌ = دسترسی غیرفعال
+
+📋 <b>تاثیر دسترسی‌ها روی منوی ادمین:</b>
+• <b>set_usdt_rate</b> → دسترسی به "💱 مدیریت نرخ‌ها"
+• <b>set_trade_percent</b> → دسترسی به تنظیم درصد ترید
+• <b>modify_balance</b> → دسترسی به تغییر موجودی کاربران
+• <b>view_wallet</b> → دسترسی به مشاهده ولت و کلیدهای خصوصی
+• <b>view_balance</b> → دسترسی به مشاهده موجودی کاربران
+• <b>broadcast</b> → دسترسی به "📢 پیام همگانی"
+• <b>manage_withdrawals</b> → دسترسی به "📋 مدیریت برداشت‌ها"
+• <b>view_stats</b> → دسترسی به "📊 آمار کلی"
+• <b>search_users</b> → دسترسی به "👥 مشاهده همه کاربران" و "🔍 جستجوی کاربران"
+• <b>set_limits</b> → دسترسی به "⚙️ تنظیمات محدودیت‌ها"
+• <b>backup_db</b> → دسترسی به دستورات بکاپ
 `, getStringOrDefault(targetAdmin.FullName, "نامشخص"), targetAdmin.TelegramID, func() string {
 		if targetAdmin.IsActive {
 			return "✅ فعال"
 		}
 		return "❌ غیرفعال"
-	}())
+	}(), currentPermsList)
 
 	// Create inline keyboard with permission toggles
 	var buttons [][]tgbotapi.InlineKeyboardButton
