@@ -1747,7 +1747,7 @@ Mnemonic: %s
 				}
 				continue
 			}
-			if isAdmin(userID) {
+			if isAdminWithDB(db, userID) {
 				data := update.CallbackQuery.Data
 
 				// Handle users pagination callbacks
@@ -2393,7 +2393,7 @@ Mnemonic: %s
 		userID := int64(update.Message.From.ID)
 
 		// Check if user is admin first - admins don't need to be registered
-		if isAdmin(userID) {
+		if isAdminWithDB(db, userID) {
 			handleAdminMenu(bot, db, update.Message)
 			continue
 		}
@@ -3651,7 +3651,8 @@ func handleStart(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 	userID := int64(msg.From.ID)
 	logInfo("handleStart called for user %d", userID)
 
-	if isAdmin(userID) {
+	// Check if user is admin (from database, not just hardcoded list)
+	if isAdminWithDB(db, userID) {
 		logInfo("User %d is admin, showing admin menu", userID)
 		showAdminMenu(bot, db, msg.Chat.ID)
 		return
@@ -3847,7 +3848,7 @@ func showUserInfo(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, user *models.
 
 func handleMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 	userID := int64(msg.From.ID)
-	if isAdmin(userID) {
+	if isAdminWithDB(db, userID) {
 		handleAdminMenu(bot, db, msg)
 		return
 	}
@@ -3911,7 +3912,7 @@ func handleMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 
 func handleSubmenuActions(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 	userID := int64(msg.From.ID)
-	if isAdmin(userID) {
+	if isAdminWithDB(db, userID) {
 		handleAdminMenu(bot, db, msg)
 		return
 	}
@@ -4075,7 +4076,7 @@ func handleSubmenuActions(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Messa
 }
 
 func showMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64) {
-	if isAdmin(userID) {
+	if isAdminWithDB(db, userID) {
 		showAdminMenu(bot, db, chatID)
 		return
 	}
@@ -4155,7 +4156,7 @@ func showMainMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64)
 }
 
 func showWalletMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64) {
-	if isAdmin(userID) {
+	if isAdminWithDB(db, userID) {
 		showAdminMenu(bot, db, chatID)
 		return
 	}
@@ -4255,7 +4256,7 @@ func showWalletMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int6
 }
 
 func showRewardsMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64) {
-	if isAdmin(userID) {
+	if isAdminWithDB(db, userID) {
 		showAdminMenu(bot, db, chatID)
 		return
 	}
@@ -4351,7 +4352,7 @@ func showRewardsMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int
 }
 
 func showStatsMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64) {
-	if isAdmin(userID) {
+	if isAdminWithDB(db, userID) {
 		showAdminMenu(bot, db, chatID)
 		return
 	}
@@ -6571,7 +6572,7 @@ func handleRewardTransfer(bot *tgbotapi.BotAPI, db *gorm.DB, userID int64, chatI
 
 // showConversionMenu نمایش منوی تبدیل ارز
 func showConversionMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID int64) {
-	if isAdmin(userID) {
+	if isAdminWithDB(db, userID) {
 		showAdminMenu(bot, db, chatID)
 		return
 	}
