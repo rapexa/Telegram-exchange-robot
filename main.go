@@ -50,6 +50,27 @@ func logDebug(format string, v ...interface{}) {
 	log.Printf("[DEBUG] "+format, v...)
 }
 
+// initializeSuperAdmins creates initial super admin accounts
+func initializeSuperAdmins(db *gorm.DB) {
+	// List of super admin telegram IDs (same as current hardcoded admins)
+	superAdminIDs := []int64{7403868937, 7947533993}
+
+	for _, telegramID := range superAdminIDs {
+		// Check if admin already exists
+		if !models.IsAdminExists(db, telegramID) {
+			// Create super admin
+			admin, err := models.CreateSuperAdmin(db, telegramID, "", "Super Admin")
+			if err != nil {
+				logError("Failed to create super admin %d: %v", telegramID, err)
+			} else {
+				logInfo("✅ Created super admin: %d (ID: %d)", telegramID, admin.ID)
+			}
+		} else {
+			logInfo("ℹ️ Super admin %d already exists", telegramID)
+		}
+	}
+}
+
 func main() {
 	// Initialize logger
 	initLogger()
@@ -95,7 +116,7 @@ func main() {
 
 	// Auto-migrate the User and Transaction models
 	logInfo("🔄 Running database migrations...")
-	if err := db.AutoMigrate(&models.User{}, &models.Transaction{}, &models.TradeResult{}, &models.TradeRange{}, &models.Rate{}, &models.Settings{}, &models.BankAccount{}); err != nil {
+	if err := db.AutoMigrate(&models.User{}, &models.Transaction{}, &models.TradeResult{}, &models.TradeRange{}, &models.Rate{}, &models.Settings{}, &models.BankAccount{}, &models.Admin{}, &models.AdminPermissionRecord{}, &models.AdminLog{}); err != nil {
 		logError("Failed to migrate database: %v", err)
 		os.Exit(1)
 	}
@@ -105,6 +126,11 @@ func main() {
 	logInfo("🔧 Initializing default settings...")
 	handlers.InitializeDefaultSettings(db)
 	logInfo("✅ Default settings initialized")
+
+	// Initialize super admins
+	logInfo("👑 Initializing super admins...")
+	initializeSuperAdmins(db)
+	logInfo("✅ Super admins initialized")
 
 	// Initialize Telegram Bot
 	logInfo("🤖 Initializing Telegram bot...")

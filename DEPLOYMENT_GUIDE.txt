@@ -1,0 +1,365 @@
+🚀 راهنمای کامل دیپلوی ربات صرافی تلگرام
+
+📋 پیش‌نیازها
+
+1. سیستم عامل و نرم‌افزارهای مورد نیاز:
+```bash
+# Ubuntu 20.04+ یا CentOS 8+
+sudo apt update && sudo apt upgrade -y
+
+# وارد شدن به سرور : 
+
+ssh -l root ایپی سرور
+مثال :
+ssh -l root 31.97.192.202
+
+پسورد سرور :
+12344321pP@#
+
+#ورود به پوشه var
+
+cd /var
+mkdir www
+cd www
+
+
+# نصب Go 1.24+
+
+wget https://go.dev/dl/go1.24.5.linux-amd64.tar.gz
+sudo tar -C /usr/local -xzf go1.24.5.linux-amd64.tar.gz
+echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
+source ~/.bashrc
+
+# نصب MySQL 8.0
+sudo apt install mysql-server -y
+sudo systemctl start mysql
+sudo systemctl enable mysql
+
+# نصب Git
+sudo apt install git -y
+
+# نصب Supervisor برای مدیریت پروسه
+sudo apt install supervisor -y
+```
+
+2. تنظیم MySQL:
+```bash
+# ورود به MySQL
+sudo mysql 
+
+# ایجاد دیتابیس و کاربر
+CREATE DATABASE telegram_exchange_bot CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'telegram_exchange_user'@'localhost' IDENTIFIED BY 'mgstudio884';
+GRANT ALL PRIVILEGES ON telegram_exchange_bot.* TO 'telegram_exchange_user'@'localhost';
+FLUSH PRIVILEGES;
+EXIT;
+```
+
+🔧 مراحل دیپلوی
+
+1. کلون و آماده‌سازی پروژه:
+```bash
+
+# کلون پروژه
+git clone https://github.com/rapexa/Telegram-exchange-robot.git 
+
+cd Telegram-exchange-bot
+
+# نصب dependencies
+go mod tidy
+go mod download
+```
+
+2. تنظیم فایل کانفیگ:
+```bash
+# ویرایش فایل کانفیگ
+nano config/config.yaml
+```
+
+محتویات config/config.yaml:
+```yaml
+mysql:
+  user: "telegram_exchange_user"
+  password: "mgstudio884"
+  host: "localhost"
+  port: 3306
+  dbname: "telegram_exchange_bot"
+
+telegram:
+  token: "YOUR_TELEGRAM_BOT_TOKEN_HERE"
+  debug: false
+
+etherscan_api_key: "YOUR_ETHERSCAN_API_KEY_HERE"
+```
+
+3. ساخت باینری:
+```bash
+# ساخت باینری برای لینوکس
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o bot main.go
+
+# اعطای مجوز اجرا
+chmod +x bot
+```
+
+4. تنظیم Supervisor:
+```bash
+# ایجاد فایل کانفیگ Supervisor
+sudo nano /etc/supervisor/conf.d/bot.conf
+```
+
+محتویات فایل Supervisor:
+```ini
+[program:bot]
+command=/var/www/Telegram-exchange-bot/bot
+directory=/var/www/Telegram-exchange-bot
+user=root
+autostart=true
+autorestart=true
+redirect_stderr=true
+stdout_logfile=/var/log/Telegram-exchange-bot.log
+stdout_logfile_maxbytes=10MB
+stdout_logfile_backups=5
+environment=GIN_MODE=release
+```
+
+5. ایجاد دایرکتوری لاگ:
+```bash
+# ایجاد دایرکتوری لاگ
+sudo mkdir -p /var/log/Telegram-exchange-bot
+sudo chown root:root /var/log/Telegram-exchange-bot
+sudo chmod 755 /var/log/Telegram-exchange-bot
+
+```
+
+6. راه‌اندازی سرویس:
+```bash
+# بارگذاری کانفیگ جدید
+sudo supervisorctl reread
+sudo supervisorctl update
+
+# شروع سرویس
+sudo supervisorctl start bot
+
+# بررسی وضعیت
+sudo supervisorctl status bot
+```
+
+🔍 بررسی و عیب‌یابی
+
+1. بررسی لاگ‌ها:
+```bash
+# لاگ Supervisor
+sudo supervisorctl tail -f telegram-exchange-bot
+
+# لاگ برنامه
+tail -f /var/log/telegram-exchange-bot.log
+
+# لاگ برنامه در دایرکتوری پروژه
+tail -f logs/bot.log
+```
+
+2. بررسی وضعیت سرویس:
+```bash
+# وضعیت کلی
+sudo supervisorctl status
+
+# راه‌اندازی مجدد
+sudo supervisorctl restart telegram-exchange-bot
+
+# توقف
+sudo supervisorctl stop telegram-exchange-bot
+
+# شروع
+sudo supervisorctl start telegram-exchange-bot
+```
+
+3. بررسی پورت‌ها:
+```bash
+# بررسی پورت MySQL
+sudo netstat -tlnp | grep 3306
+
+# بررسی پروسه‌های Go
+ps aux | grep telegram-exchange-bot
+```
+
+🛡️ امنیت و بهینه‌سازی
+
+1. تنظیم فایروال:
+```bash
+# نصب UFW
+sudo apt install ufw -y
+
+# تنظیم قوانین
+sudo ufw allow ssh
+sudo ufw allow 3306
+sudo ufw enable
+```
+
+2. تنظیم MySQL:
+```bash
+# اجرای اسکریپت امنیتی
+sudo mysql_secure_installation
+
+# تنظیم کانفیگ MySQL
+sudo nano /etc/mysql/mysql.conf.d/mysqld.cnf
+```
+
+تنظیمات پیشنهادی MySQL:
+```ini
+[mysqld]
+bind-address = 127.0.0.1
+max_connections = 200
+innodb_buffer_pool_size = 256M
+innodb_log_file_size = 64M
+```
+
+3. تنظیم سیستم:
+```bash
+# افزایش محدودیت فایل
+echo "* soft nofile 65536" | sudo tee -a /etc/security/limits.conf
+echo "* hard nofile 65536" | sudo tee -a /etc/security/limits.conf
+
+# تنظیم swap
+sudo fallocate -l 2G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+```
+
+📊 مانیتورینگ
+
+1. اسکریپت مانیتورینگ:
+```bash
+# ایجاد اسکریپت مانیتورینگ
+nano /opt/telegram-exchange-bot/monitor.sh
+```
+
+محتویات اسکریپت:
+```bash
+#!/bin/bash
+LOG_FILE="/var/log/telegram-exchange-bot.log"
+ERROR_COUNT=$(grep -c "ERROR" $LOG_FILE | tail -100)
+if [ $ERROR_COUNT -gt 10 ]; then
+    echo "High error count detected: $ERROR_COUNT"
+    # ارسال اعلان
+fi
+```
+
+2. Cron Job برای مانیتورینگ:
+```bash
+# اضافه کردن به crontab
+crontab -e
+
+# هر 5 دقیقه بررسی
+*/5 * * * * /opt/telegram-exchange-bot/monitor.sh
+```
+
+🔄 به‌روزرسانی
+
+1. اسکریپت به‌روزرسانی:
+```bash
+# ایجاد اسکریپت به‌روزرسانی
+nano /opt/telegram-exchange-bot/update.sh
+```
+
+محتویات اسکریپت:
+```bash
+#!/bin/bash
+cd /opt/telegram-exchange-bot
+
+# توقف سرویس
+sudo supervisorctl stop telegram-exchange-bot
+
+# پشتیبان‌گیری
+cp telegram-exchange-bot telegram-exchange-bot.backup.$(date +%Y%m%d_%H%M%S)
+
+# به‌روزرسانی کد
+git pull origin main
+
+# نصب dependencies
+go mod tidy
+
+# ساخت باینری جدید
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o telegram-exchange-bot main.go
+
+# شروع سرویس
+sudo supervisorctl start telegram-exchange-bot
+
+echo "Update completed at $(date)"
+```
+
+📋 دستورات مفید
+
+1. مدیریت سرویس:
+```bash
+# راه‌اندازی مجدد
+sudo supervisorctl restart telegram-exchange-bot
+
+# توقف
+sudo supervisorctl stop telegram-exchange-bot
+
+# شروع
+sudo supervisorctl start telegram-exchange-bot
+
+# وضعیت
+sudo supervisorctl status telegram-exchange-bot
+```
+
+2. مدیریت دیتابیس:
+```bash
+# پشتیبان‌گیری
+mysqldump -u telegram_exchange_user -p telegram_exchange_bot > backup_$(date +%Y%m%d).sql
+
+# بازگردانی
+mysql -u telegram_exchange_user -p telegram_exchange_bot < backup_20241201.sql
+```
+
+3. بررسی لاگ‌ها:
+```bash
+# لاگ Supervisor
+sudo supervisorctl tail -f telegram-exchange-bot
+
+# لاگ برنامه
+tail -f /var/log/telegram-exchange-bot.log
+
+# جستجو در لاگ
+grep "ERROR" /var/log/telegram-exchange-bot.log
+```
+
+⚠️ نکات مهم
+
+1. امنیت: هرگز کلیدهای خصوصی را در کد قرار ندهید
+2. پشتیبان‌گیری: روزانه از دیتابیس پشتیبان بگیرید
+3. مانیتورینگ: وضعیت سرویس را مرتب بررسی کنید
+4. به‌روزرسانی: قبل از به‌روزرسانی حتماً پشتیبان بگیرید
+5. لاگ‌ها: فضای کافی برای لاگ‌ها در نظر بگیرید
+
+🆘 عیب‌یابی مشکلات رایج
+
+1. سرویس شروع نمی‌شود:
+```bash
+# بررسی لاگ
+sudo supervisorctl tail -f telegram-exchange-bot
+
+# بررسی کانفیگ
+sudo supervisorctl reread
+sudo supervisorctl update
+```
+
+2. مشکل اتصال به دیتابیس:
+```bash
+# بررسی وضعیت MySQL
+sudo systemctl status mysql
+
+# تست اتصال
+mysql -u telegram_exchange_user -p telegram_exchange_bot
+```
+
+3. مشکل API تلگرام:
+```bash
+# بررسی توکن
+curl -s "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getMe"
+```
+
+این راهنما تمام مراحل لازم برای دیپلوی موفق پروژه روی سرور لینوکسی را پوشش می‌دهد. در صورت بروز مشکل، ابتدا لاگ‌ها را بررسی کنید.

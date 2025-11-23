@@ -58,6 +58,27 @@ func isAdmin(userID int64) bool {
 	return false
 }
 
+// isAdminWithDB checks if user is admin using database
+func isAdminWithDB(db *gorm.DB, userID int64) bool {
+	admin, err := models.GetAdminByTelegramID(db, userID)
+	if err != nil {
+		return false
+	}
+	return admin != nil && admin.IsActive
+}
+
+// hasPermission checks if admin has specific permission
+func hasPermission(db *gorm.DB, userID int64, permission models.AdminPermission) bool {
+	admin, err := models.GetAdminByTelegramID(db, userID)
+	if err != nil {
+		return false
+	}
+	if admin == nil {
+		return false
+	}
+	return admin.HasPermission(db, permission)
+}
+
 // sendToAllAdmins sends a message to all admin users
 func sendToAllAdmins(bot *tgbotapi.BotAPI, message string) {
 	for _, adminID := range adminUserIDs {
@@ -77,6 +98,10 @@ func sendToAllAdminsWithMarkup(bot *tgbotapi.BotAPI, message string, markup inte
 }
 
 func showAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) {
+	// Check if user is super admin to show admin management option
+	admin, _ := models.GetAdminByTelegramID(db, chatID)
+	isSuperAdmin := admin != nil && admin.IsSuperAdmin
+
 	menu := tgbotapi.NewReplyKeyboard(
 		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("📊 آمار کلی"),
@@ -94,6 +119,15 @@ func showAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) {
 			tgbotapi.NewKeyboardButton("💱 مدیریت نرخ‌ها"),
 		),
 	)
+
+	// Add admin management option for super admins only
+	if isSuperAdmin {
+		menu.Keyboard = append(menu.Keyboard,
+			tgbotapi.NewKeyboardButtonRow(
+				tgbotapi.NewKeyboardButton("👑 مدیریت ادمین‌ها"),
+			),
+		)
+	}
 	menu.ResizeKeyboard = true
 	menu.OneTimeKeyboard = false
 
@@ -156,6 +190,12 @@ func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 
 	switch msg.Text {
 	case "📊 آمار کلی":
+		// Check permission
+		if !hasPermission(db, msg.From.ID, models.PERM_VIEW_STATS) {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ شما دسترسی به این بخش ندارید!"))
+			return
+		}
+
 		// Show global stats
 		var userCount int64
 		db.Model(&models.User{}).Count(&userCount)
@@ -175,15 +215,33 @@ func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 		bot.Send(message)
 		return
 	case "👥 مشاهده همه کاربران":
+		// Check permission
+		if !hasPermission(db, msg.From.ID, models.PERM_SEARCH_USERS) {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ شما دسترسی به این بخش ندارید!"))
+			return
+		}
+
 		adminUsersPage[msg.From.ID] = 0       // Reset to first page
 		adminSearchState[msg.From.ID] = ""    // Clear search state
 		adminSearchFilters[msg.From.ID] = nil // Clear filters
 		showUsersPage(bot, db, msg.Chat.ID, msg.From.ID, 0)
 		return
 	case "🔍 جستجوی کاربران":
+		// Check permission
+		if !hasPermission(db, msg.From.ID, models.PERM_SEARCH_USERS) {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ شما دسترسی به این بخش ندارید!"))
+			return
+		}
+
 		showUserSearchMenu(bot, db, msg.Chat.ID, msg.From.ID)
 		return
 	case "📢 پیام همگانی":
+		// Check permission
+		if !hasPermission(db, msg.From.ID, models.PERM_BROADCAST) {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ شما دسترسی به این بخش ندارید!"))
+			return
+		}
+
 		// Set admin state for broadcast
 		adminState[msg.From.ID] = "awaiting_broadcast"
 		adminBroadcastState[msg.From.ID] = "awaiting_broadcast"
@@ -202,13 +260,40 @@ func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 		bot.Send(m)
 		return
 	case "📋 مدیریت برداشت‌ها":
+		// Check permission
+		if !hasPermission(db, msg.From.ID, models.PERM_MANAGE_WITHDRAWALS) {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ شما دسترسی به این بخش ندارید!"))
+			return
+		}
+
 		showAllPendingWithdrawals(bot, db, msg.Chat.ID)
 		return
 	case "⚙️ تنظیمات محدودیت‌ها":
+		// Check permission
+		if !hasPermission(db, msg.From.ID, models.PERM_SET_LIMITS) {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ شما دسترسی به این بخش ندارید!"))
+			return
+		}
+
 		showLimitsSettings(bot, db, msg.Chat.ID)
 		return
 	case "💱 مدیریت نرخ‌ها":
+		// Check permission
+		if !hasPermission(db, msg.From.ID, models.PERM_SET_USDT_RATE) {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ شما دسترسی به این بخش ندارید!"))
+			return
+		}
+
 		showRatesManagement(bot, db, msg.Chat.ID)
+		return
+	case "👑 مدیریت ادمین‌ها":
+		// Check if user is super admin
+		admin, _ := models.GetAdminByTelegramID(db, msg.From.ID)
+		if admin == nil || !admin.IsSuperAdmin {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ شما دسترسی به این بخش ندارید!"))
+			return
+		}
+		showAdminManagementMenu(bot, db, msg.Chat.ID)
 		return
 	case "⬅️ بازگشت":
 		showMainMenu(bot, db, msg.Chat.ID, msg.From.ID)
@@ -219,6 +304,45 @@ func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 	case "❌ لغو و بازگشت":
 		clearRegState(msg.From.ID)
 		showBankAccountsManagement(bot, db, msg.Chat.ID, msg.From.ID)
+		return
+
+	// Admin Management Menu Options
+	case "👥 مشاهده همه ادمین‌ها":
+		// Check if user is super admin
+		admin, _ := models.GetAdminByTelegramID(db, msg.From.ID)
+		if admin == nil || !admin.IsSuperAdmin {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ شما دسترسی به این بخش ندارید!"))
+			return
+		}
+		showAllAdmins(bot, db, msg.Chat.ID)
+		return
+	case "➕ افزودن ادمین جدید":
+		// Check if user is super admin
+		admin, _ := models.GetAdminByTelegramID(db, msg.From.ID)
+		if admin == nil || !admin.IsSuperAdmin {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ شما دسترسی به این بخش ندارید!"))
+			return
+		}
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, `➕ <b>افزودن ادمین جدید</b>
+
+برای افزودن ادمین جدید از دستور زیر استفاده کنید:
+
+<code>/addadmin TELEGRAM_ID "نام کامل" PERMISSION1,PERMISSION2,...</code>
+
+<b>مثال:</b>
+<code>/addadmin 123456789 "علی احمدی" set_usdt_rate,modify_balance</code>
+
+<b>دسترسی‌های موجود:</b>
+• <code>set_usdt_rate</code> - تعیین قیمت تتر
+• <code>set_trade_percent</code> - تعیین درصد سود  
+• <code>modify_balance</code> - تغییر دارایی کاربر
+• <code>view_wallet</code> - دیدن ولت و بک‌اپ
+• <code>view_balance</code> - دیدن دارایی کاربر
+• <code>broadcast</code> - پیام همگانی
+• <code>manage_withdrawals</code> - مدیریت برداشت‌ها
+• <code>view_stats</code> - مشاهده آمار
+• <code>search_users</code> - جستجوی کاربران
+• <code>backup_db</code> - بکاپ دیتابیس`))
 		return
 	}
 
@@ -390,6 +514,12 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB, cfg *config.Config) {
 		// --- هندل دستور ادمین برای /settrade و /setrate و /rates ---
 		if update.Message != nil && update.Message.IsCommand() && isAdmin(int64(update.Message.From.ID)) {
 			if update.Message.Command() == "settrade" {
+				// Check permission
+				if !hasPermission(db, int64(update.Message.From.ID), models.PERM_SET_TRADE_PERCENT) {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ شما دسترسی به این دستور ندارید!"))
+					continue
+				}
+
 				args := strings.Fields(update.Message.CommandArguments())
 				if len(args) == 3 {
 					tradeIndex, _ := strconv.Atoi(args[0])
@@ -419,6 +549,14 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB, cfg *config.Config) {
 						tr = models.TradeRange{TradeIndex: tradeIndex, MinPercent: minPercent, MaxPercent: maxPercent}
 						db.Create(&tr)
 					}
+
+					// Get admin info for logging
+					admin, _ := models.GetAdminByTelegramID(db, int64(update.Message.From.ID))
+					if admin != nil {
+						details := fmt.Sprintf("تنظیم رنج ترید %d - حداقل: %.1f%% - حداکثر: %.1f%%", tradeIndex, minPercent, maxPercent)
+						models.LogAdminAction(db, admin.ID, int64(admin.TelegramID), "set_trade_range", "setting", nil, details)
+					}
+
 					// پیام بهتر برای تنظیم رنج‌های ترید
 					var riskLevel string
 					var riskEmoji string
@@ -467,31 +605,57 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB, cfg *config.Config) {
 				continue
 			}
 			if update.Message.Command() == "setrate" {
+				// Check permission
+				if !hasPermission(db, int64(update.Message.From.ID), models.PERM_SET_USDT_RATE) {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ شما دسترسی به این دستور ندارید!"))
+					continue
+				}
+
 				args := strings.Fields(update.Message.CommandArguments())
 				if len(args) == 2 {
 					asset := strings.ToUpper(args[0])
-					value, err := strconv.ParseFloat(args[1], 64)
-					if err != nil || value <= 0 {
-						bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "مقدار نرخ نامعتبر است. فقط عدد مثبت وارد کنید."))
+					rate, err := strconv.ParseFloat(args[1], 64)
+					if err != nil || rate <= 0 {
+						bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ نرخ باید عدد مثبت باشد!"))
 						continue
 					}
-					var rate models.Rate
-					if err := db.Where("asset = ?", asset).First(&rate).Error; err == nil {
-						rate.Value = value
-						db.Save(&rate)
+
+					var existingRate models.Rate
+					if err := db.Where("asset = ?", asset).First(&existingRate).Error; err != nil {
+						if err == gorm.ErrRecordNotFound {
+							// ایجاد نرخ جدید
+							newRate := models.Rate{
+								Asset: asset,
+								Value: rate,
+							}
+							db.Create(&newRate)
+						} else {
+							bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ خطا در دسترسی به دیتابیس!"))
+							continue
+						}
 					} else {
-						rate = models.Rate{Asset: asset, Value: value}
-						db.Create(&rate)
+						// به‌روزرسانی نرخ موجود
+						existingRate.Value = rate
+						db.Save(&existingRate)
 					}
-					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("نرخ *%s* به *%s تومان* با موفقیت ثبت شد.\n\nمثال کاربرد: اگر کاربر ۱۰۰ تتر بخواهد، مبلغ معادل: *%s تومان* خواهد بود.", asset, formatToman(value), formatToman(value*100))))
+
+					// Get admin info for logging
+					admin, _ := models.GetAdminByTelegramID(db, int64(update.Message.From.ID))
+					if admin != nil {
+						details := fmt.Sprintf("تنظیم نرخ %s - نرخ قبلی: %.0f تومان - نرخ جدید: %.0f تومان", asset, func() float64 {
+							if existingRate.ID != 0 {
+								return existingRate.Value
+							}
+							return 0
+						}(), rate)
+						models.LogAdminAction(db, admin.ID, int64(admin.TelegramID), "set_rate", "setting", nil, details)
+					}
+
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("✅ نرخ %s به %.0f تومان تنظیم شد!", asset, rate)))
 				} else {
 					helpMsg := "❌ *فرمت دستور اشتباه!*\n\n" +
-						"📝 *فرمت صحیح:*\n" +
-						"`/setrate [ارز] [نرخ به تومان]`\n\n" +
-						"💡 *مثال‌ها:*\n" +
-						"• `/setrate USDT 58500` - نرخ تتر: ۵۸,۵۰۰ تومان\n" +
-						"• `/setrate BTC 2500000000` - نرخ بیت‌کوین: ۲,۵۰۰,۰۰۰,۰۰۰ تومان\n" +
-						"• `/setrate ETH 150000000` - نرخ اتریوم: ۱۵۰,۰۰۰,۰۰۰ تومان\n\n" +
+						"📝 *فرمت درست:* `/setrate ASSET RATE`\n\n" +
+						"💡 *مثال:* `/setrate USDT 58500`\n\n" +
 						"⚠️ *نکات مهم:*\n" +
 						"• نرخ باید عدد مثبت باشد\n" +
 						"• برای مشاهده نرخ‌های فعلی: `/rates`"
@@ -554,6 +718,12 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB, cfg *config.Config) {
 				continue
 			}
 			if update.Message.Command() == "addusdt" {
+				// Check permission
+				if !hasPermission(db, int64(update.Message.From.ID), models.PERM_MODIFY_BALANCE) {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ شما دسترسی به این دستور ندارید!"))
+					continue
+				}
+
 				args := strings.Fields(update.Message.CommandArguments())
 				if len(args) != 2 {
 					helpMsg := "❌ *فرمت دستور اشتباه!*\n\n" +
@@ -581,12 +751,27 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB, cfg *config.Config) {
 					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "😔 این کاربر رو پیدا نکردم!"))
 					continue
 				}
+
+				// Get admin info for logging
+				admin, _ := models.GetAdminByTelegramID(db, int64(update.Message.From.ID))
+				if admin != nil {
+					userIDUint := user.ID
+					details := fmt.Sprintf("افزایش موجودی USDT - کاربر: %s (ID: %d) - مبلغ: %.2f USDT - موجودی قبلی: %.2f USDT - موجودی جدید: %.2f USDT", user.FullName, user.TelegramID, amount, user.ERC20Balance, user.ERC20Balance+amount)
+					models.LogAdminAction(db, admin.ID, int64(admin.TelegramID), "add_usdt", "user", &userIDUint, details)
+				}
+
 				user.ERC20Balance += amount
 				db.Save(user)
 				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("✅ *انجام شد!* \n\n🎉 موجودی USDT کاربر *%s* (آیدی: `%d`) به میزان *%.2f USDT* افزایش یافت.", user.FullName, user.TelegramID, amount)))
 				continue
 			}
 			if update.Message.Command() == "subusdt" {
+				// Check permission
+				if !hasPermission(db, int64(update.Message.From.ID), models.PERM_MODIFY_BALANCE) {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ شما دسترسی به این دستور ندارید!"))
+					continue
+				}
+
 				args := strings.Fields(update.Message.CommandArguments())
 				if len(args) != 2 {
 					helpMsg := "❌ *فرمت دستور اشتباه!*\n\n" +
@@ -618,12 +803,27 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB, cfg *config.Config) {
 					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "😬  موجودی کافی نیست."))
 					continue
 				}
+
+				// Get admin info for logging
+				admin, _ := models.GetAdminByTelegramID(db, int64(update.Message.From.ID))
+				if admin != nil {
+					userIDUint := user.ID
+					details := fmt.Sprintf("کاهش موجودی USDT - کاربر: %s (ID: %d) - مبلغ: %.2f USDT - موجودی قبلی: %.2f USDT - موجودی جدید: %.2f USDT", user.FullName, user.TelegramID, amount, user.ERC20Balance, user.ERC20Balance-amount)
+					models.LogAdminAction(db, admin.ID, int64(admin.TelegramID), "sub_usdt", "user", &userIDUint, details)
+				}
+
 				user.ERC20Balance -= amount
 				db.Save(user)
 				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("✅ *انجام شد!* \n\n📉 موجودی USDT کاربر *%s* (آیدی: `%d`) به میزان *%.2f USDT* کاهش یافت.", user.FullName, user.TelegramID, amount)))
 				continue
 			}
 			if update.Message.Command() == "setusdt" {
+				// Check permission
+				if !hasPermission(db, int64(update.Message.From.ID), models.PERM_MODIFY_BALANCE) {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ شما دسترسی به این دستور ندارید!"))
+					continue
+				}
+
 				args := strings.Fields(update.Message.CommandArguments())
 				if len(args) != 2 {
 					helpMsg := "❌ *فرمت دستور اشتباه!*\n\n" +
@@ -651,12 +851,27 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB, cfg *config.Config) {
 					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "😔 این کاربر رو پیدا نکردم!"))
 					continue
 				}
+
+				// Get admin info for logging
+				admin, _ := models.GetAdminByTelegramID(db, int64(update.Message.From.ID))
+				if admin != nil {
+					userIDUint := user.ID
+					details := fmt.Sprintf("تنظیم موجودی USDT - کاربر: %s (ID: %d) - موجودی قبلی: %.2f USDT - موجودی جدید: %.2f USDT", user.FullName, user.TelegramID, user.ERC20Balance, amount)
+					models.LogAdminAction(db, admin.ID, int64(admin.TelegramID), "set_usdt", "user", &userIDUint, details)
+				}
+
 				user.ERC20Balance = amount
 				db.Save(user)
 				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("✅ *تمام!* \n\n🎯 موجودی USDT کاربر *%s* (آیدی: `%d`) روی *%.2f USDT* تنظیم شد.", user.FullName, user.TelegramID, amount)))
 				continue
 			}
 			if update.Message.Command() == "addtoman" {
+				// Check permission
+				if !hasPermission(db, int64(update.Message.From.ID), models.PERM_MODIFY_BALANCE) {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ شما دسترسی به این دستور ندارید!"))
+					continue
+				}
+
 				args := strings.Fields(update.Message.CommandArguments())
 				if len(args) != 2 {
 					helpMsg := "❌ *فرمت دستور اشتباه!*\n\n" +
@@ -684,12 +899,27 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB, cfg *config.Config) {
 					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "😔 این کاربر رو پیدا نکردم!"))
 					continue
 				}
+
+				// Get admin info for logging
+				admin, _ := models.GetAdminByTelegramID(db, int64(update.Message.From.ID))
+				if admin != nil {
+					userIDUint := user.ID
+					details := fmt.Sprintf("افزایش موجودی تومانی - کاربر: %s (ID: %d) - مبلغ: %s تومان - موجودی قبلی: %s تومان - موجودی جدید: %s تومان", user.FullName, user.TelegramID, formatToman(amount), formatToman(user.TomanBalance), formatToman(user.TomanBalance+amount))
+					models.LogAdminAction(db, admin.ID, int64(admin.TelegramID), "add_toman", "user", &userIDUint, details)
+				}
+
 				user.TomanBalance += amount
 				db.Save(user)
 				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("✅ *انجام شد!* \n\n🎉 موجودی تومانی کاربر *%s* (آیدی: `%d`) به میزان *%s تومان* افزایش یافت.", user.FullName, user.TelegramID, formatToman(amount))))
 				continue
 			}
 			if update.Message.Command() == "subtoman" {
+				// Check permission
+				if !hasPermission(db, int64(update.Message.From.ID), models.PERM_MODIFY_BALANCE) {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ شما دسترسی به این دستور ندارید!"))
+					continue
+				}
+
 				args := strings.Fields(update.Message.CommandArguments())
 				if len(args) != 2 {
 					helpMsg := "❌ *فرمت دستور اشتباه!*\n\n" +
@@ -721,12 +951,27 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB, cfg *config.Config) {
 					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "😬  موجودی تومانی کافی نیست."))
 					continue
 				}
+
+				// Get admin info for logging
+				admin, _ := models.GetAdminByTelegramID(db, int64(update.Message.From.ID))
+				if admin != nil {
+					userIDUint := user.ID
+					details := fmt.Sprintf("کاهش موجودی تومانی - کاربر: %s (ID: %d) - مبلغ: %s تومان - موجودی قبلی: %s تومان - موجودی جدید: %s تومان", user.FullName, user.TelegramID, formatToman(amount), formatToman(user.TomanBalance), formatToman(user.TomanBalance-amount))
+					models.LogAdminAction(db, admin.ID, int64(admin.TelegramID), "sub_toman", "user", &userIDUint, details)
+				}
+
 				user.TomanBalance -= amount
 				db.Save(user)
 				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("✅ *انجام شد!* \n\n📉 موجودی تومانی کاربر *%s* (آیدی: `%d`) به میزان *%s تومان* کاهش یافت.", user.FullName, user.TelegramID, formatToman(amount))))
 				continue
 			}
 			if update.Message.Command() == "settoman" {
+				// Check permission
+				if !hasPermission(db, int64(update.Message.From.ID), models.PERM_MODIFY_BALANCE) {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ شما دسترسی به این دستور ندارید!"))
+					continue
+				}
+
 				args := strings.Fields(update.Message.CommandArguments())
 				if len(args) != 2 {
 					helpMsg := "❌ *فرمت دستور اشتباه!*\n\n" +
@@ -754,12 +999,27 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB, cfg *config.Config) {
 					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "😔 این کاربر رو پیدا نکردم!"))
 					continue
 				}
+
+				// Get admin info for logging
+				admin, _ := models.GetAdminByTelegramID(db, int64(update.Message.From.ID))
+				if admin != nil {
+					userIDUint := user.ID
+					details := fmt.Sprintf("تنظیم موجودی تومانی - کاربر: %s (ID: %d) - موجودی قبلی: %s تومان - موجودی جدید: %s تومان", user.FullName, user.TelegramID, formatToman(user.TomanBalance), formatToman(amount))
+					models.LogAdminAction(db, admin.ID, int64(admin.TelegramID), "set_toman", "user", &userIDUint, details)
+				}
+
 				user.TomanBalance = amount
 				db.Save(user)
 				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("✅ *تمام!* \n\n🎯 موجودی تومانی کاربر *%s* (آیدی: `%d`) روی *%s تومان* تنظیم شد.", user.FullName, user.TelegramID, formatToman(amount))))
 				continue
 			}
 			if update.Message.Command() == "userinfo" {
+				// Check permission - need either view_wallet or view_balance
+				if !hasPermission(db, int64(update.Message.From.ID), models.PERM_VIEW_WALLET) && !hasPermission(db, int64(update.Message.From.ID), models.PERM_VIEW_BALANCE) {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ شما دسترسی به این دستور ندارید!"))
+					continue
+				}
+
 				args := strings.Fields(update.Message.CommandArguments())
 				if len(args) != 1 {
 					helpMsg := "❌ *فرمت دستور اشتباه!*\n\n" +
@@ -817,6 +1077,12 @@ Mnemonic: %s
 				continue
 			}
 			if update.Message.Command() == "setmindeposit" {
+				// Check permission
+				if !hasPermission(db, int64(update.Message.From.ID), models.PERM_SET_LIMITS) {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ شما دسترسی به این دستور ندارید!"))
+					continue
+				}
+
 				args := strings.Fields(update.Message.CommandArguments())
 				if len(args) != 1 {
 					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "😅 *فرمت درستش اینطوریه:* \n`/setmindeposit AMOUNT`"))
@@ -835,6 +1101,12 @@ Mnemonic: %s
 				continue
 			}
 			if update.Message.Command() == "setminwithdraw" {
+				// Check permission
+				if !hasPermission(db, int64(update.Message.From.ID), models.PERM_SET_LIMITS) {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ شما دسترسی به این دستور ندارید!"))
+					continue
+				}
+
 				args := strings.Fields(update.Message.CommandArguments())
 				if len(args) != 1 {
 					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "😅 *فرمت درستش اینطوریه:* \n`/setminwithdraw AMOUNT`"))
@@ -853,6 +1125,12 @@ Mnemonic: %s
 				continue
 			}
 			if update.Message.Command() == "setmaxwithdraw" {
+				// Check permission
+				if !hasPermission(db, int64(update.Message.From.ID), models.PERM_SET_LIMITS) {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ شما دسترسی به این دستور ندارید!"))
+					continue
+				}
+
 				args := strings.Fields(update.Message.CommandArguments())
 				if len(args) != 1 {
 					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "😅 *فرمت درستش اینطوریه:* \n`/setmaxwithdraw AMOUNT`"))
@@ -870,7 +1148,147 @@ Mnemonic: %s
 				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("✅ *انجام شد!* \n\n🎯 حداکثر برداشت به *%s تومان* تنظیم شد.", formatToman(amount))))
 				continue
 			}
+			if update.Message.Command() == "addadmin" {
+				// Check if user is super admin
+				if !hasPermission(db, int64(update.Message.From.ID), models.PERM_MANAGE_ADMINS) {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ شما دسترسی به این دستور ندارید!"))
+					continue
+				}
+
+				args := strings.Fields(update.Message.CommandArguments())
+				if len(args) < 3 {
+					helpMsg := `❌ *فرمت دستور اشتباه!*
+
+📝 *فرمت درست:*
+/addadmin TELEGRAM_ID "نام کامل" PERMISSION1,PERMISSION2,...
+
+📋 *مثال:*
+/addadmin 123456789 "علی احمدی" set_usdt_rate,modify_balance
+
+🔐 *دسترسی‌های موجود:*
+• set_usdt_rate - تعیین قیمت تتر
+• set_trade_percent - تعیین درصد سود
+• modify_balance - تغییر دارایی کاربر
+• view_wallet - دیدن ولت و بک‌اپ
+• view_balance - دیدن دارایی کاربر
+• broadcast - پیام همگانی
+• manage_withdrawals - مدیریت برداشت‌ها
+• view_stats - مشاهده آمار
+• search_users - جستجوی کاربران
+• backup_db - بکاپ دیتابیس
+• set_limits - تنظیم محدودیت‌ها`
+
+					msg := tgbotapi.NewMessage(update.Message.Chat.ID, helpMsg)
+					msg.ParseMode = "Markdown"
+					bot.Send(msg)
+					continue
+				}
+
+				telegramID, err := strconv.ParseInt(args[0], 10, 64)
+				if err != nil {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ Telegram ID باید عدد باشد!"))
+					continue
+				}
+
+				// Extract full name (handle quoted strings)
+				fullName := args[1]
+				if strings.HasPrefix(fullName, "\"") && strings.HasSuffix(fullName, "\"") {
+					fullName = strings.Trim(fullName, "\"")
+				}
+
+				// Parse permissions
+				permissionsStr := args[2]
+				permissionNames := strings.Split(permissionsStr, ",")
+				var permissions []models.AdminPermission
+
+				for _, permName := range permissionNames {
+					permName = strings.TrimSpace(permName)
+					perm := models.AdminPermission(permName)
+
+					// Validate permission
+					validPerms := models.GetAllPermissions()
+					isValid := false
+					for _, validPerm := range validPerms {
+						if perm == validPerm {
+							isValid = true
+							break
+						}
+					}
+
+					if !isValid {
+						bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("❌ دسترسی '%s' معتبر نیست!", permName)))
+						continue
+					}
+
+					permissions = append(permissions, perm)
+				}
+
+				// Check if admin already exists
+				if models.IsAdminExists(db, telegramID) {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ این کاربر قبلاً ادمین است!"))
+					continue
+				}
+
+				// Get creator admin
+				creatorAdmin, _ := models.GetAdminByTelegramID(db, int64(update.Message.From.ID))
+
+				// Create new admin
+				newAdmin := models.Admin{
+					TelegramID:   telegramID,
+					FullName:     fullName,
+					IsSuperAdmin: false,
+					IsActive:     true,
+					CreatedBy:    &creatorAdmin.ID,
+					CreatedAt:    time.Now(),
+					UpdatedAt:    time.Now(),
+				}
+
+				if err := db.Create(&newAdmin).Error; err != nil {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ خطا در ایجاد ادمین!"))
+					continue
+				}
+
+				// Set permissions
+				if err := newAdmin.SetPermissions(db, permissions); err != nil {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ خطا در تنظیم دسترسی‌ها!"))
+					continue
+				}
+
+				// Log the action
+				if creatorAdmin != nil {
+					adminIDUint := newAdmin.ID
+					permsList := strings.Join(permissionNames, ", ")
+					details := fmt.Sprintf("افزودن ادمین جدید - نام: %s - Telegram ID: %d - دسترسی‌ها: %s", fullName, telegramID, permsList)
+					models.LogAdminAction(db, creatorAdmin.ID, int64(creatorAdmin.TelegramID), "add_admin", "admin", &adminIDUint, details)
+				}
+
+				// Success message
+				var permsList string
+				for _, perm := range permissions {
+					permsList += fmt.Sprintf("• %s\n", models.GetPermissionDescription(perm))
+				}
+
+				successMsg := fmt.Sprintf(`✅ *ادمین جدید با موفقیت اضافه شد!*
+
+👤 *نام:* %s
+🆔 *Telegram ID:* %d
+📋 *دسترسی‌ها:*
+%s
+
+🎉 ادمین جدید اکنون می‌تواند از دسترسی‌های تعیین شده استفاده کند.`, fullName, telegramID, permsList)
+
+				msg := tgbotapi.NewMessage(update.Message.Chat.ID, successMsg)
+				msg.ParseMode = "Markdown"
+				bot.Send(msg)
+				continue
+			}
 			if update.Message.Command() == "backup" || update.Message.Command() == "simplebackup" {
+				// Check permission
+				if !hasPermission(db, int64(update.Message.From.ID), models.PERM_BACKUP_DB) {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ شما دسترسی به این دستور ندارید!"))
+					continue
+				}
+
 				// اجرای بکاپ دیتابیس و ارسال فایل به ادمین
 				go func(chatID int64) {
 					bot.Send(tgbotapi.NewMessage(chatID, "⏳ صبر کن، دارم فایل بکاپ رو آماده می‌کنم..."))
@@ -1430,6 +1848,15 @@ Mnemonic: %s
 						var user models.User
 						db.First(&user, tx.UserID)
 
+						// Get admin info for logging
+						admin, _ := models.GetAdminByTelegramID(db, userID)
+						if admin != nil {
+							// Log the action
+							txIDUint := uint(txID)
+							details := fmt.Sprintf("تایید درخواست برداشت #%d - کاربر: %s (ID: %d) - مبلغ: %.4f USDT - شبکه: %s", tx.ID, user.FullName, user.TelegramID, tx.Amount, tx.Network)
+							models.LogAdminAction(db, admin.ID, int64(admin.TelegramID), "approve_withdraw", "transaction", &txIDUint, details)
+						}
+
 						// مرحله 2: فقط تایید درخواست (بدون کسر موجودی)
 						tx.Status = "approved"
 						db.Save(&tx)
@@ -1617,10 +2044,20 @@ Mnemonic: %s
 					txID, _ := strconv.Atoi(txIDstr)
 					var tx models.Transaction
 					if err := db.First(&tx, txID).Error; err == nil && tx.Status == "pending" {
-						tx.Status = "canceled"
-						db.Save(&tx)
 						var user models.User
 						db.First(&user, tx.UserID)
+
+						// Get admin info for logging
+						admin, _ := models.GetAdminByTelegramID(db, userID)
+						if admin != nil {
+							// Log the action
+							txIDUint := uint(txID)
+							details := fmt.Sprintf("رد درخواست برداشت #%d - کاربر: %s (ID: %d) - مبلغ: %.4f USDT - شبکه: %s", tx.ID, user.FullName, user.TelegramID, tx.Amount, tx.Network)
+							models.LogAdminAction(db, admin.ID, int64(admin.TelegramID), "reject_withdraw", "transaction", &txIDUint, details)
+						}
+
+						tx.Status = "canceled"
+						db.Save(&tx)
 						if tx.Type == "reward_withdraw" {
 							user.ReferralReward += tx.Amount
 							db.Save(&user)
@@ -1706,6 +2143,134 @@ Mnemonic: %s
 						showAdminMenu(bot, db, userID)
 						bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "لغو شد"))
 						continue
+					}
+				}
+
+				// Handle back to admin list
+				if data == "back_to_admin_list" {
+					showAllAdmins(bot, db, update.CallbackQuery.Message.Chat.ID)
+					bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "بازگشت به لیست ادمین‌ها"))
+					continue
+				}
+
+				// Handle admin management callbacks
+				if strings.HasPrefix(data, "admin_perms_") {
+					adminIDstr := strings.TrimPrefix(data, "admin_perms_")
+					adminIDint, err := strconv.Atoi(adminIDstr)
+					if err == nil {
+						// Check if current user is super admin
+						currentAdmin, _ := models.GetAdminByTelegramID(db, userID)
+						if currentAdmin == nil || !currentAdmin.IsSuperAdmin {
+							bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "❌ فقط سوپر ادمین می‌تواند دسترسی‌ها را تغییر دهد"))
+							continue
+						}
+
+						// Get target admin
+						var targetAdmin models.Admin
+						if err := db.First(&targetAdmin, adminIDint).Error; err != nil {
+							bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "❌ ادمین یافت نشد"))
+							continue
+						}
+
+						// Show permissions management menu
+						showAdminPermissionsMenu(bot, db, update.CallbackQuery.Message.Chat.ID, userID, &targetAdmin)
+						bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "منوی تنظیم دسترسی‌ها"))
+						continue
+					}
+				}
+
+				if strings.HasPrefix(data, "admin_disable_") {
+					adminIDstr := strings.TrimPrefix(data, "admin_disable_")
+					adminIDint, err := strconv.Atoi(adminIDstr)
+					if err == nil {
+						// Check if current user is super admin
+						currentAdmin, _ := models.GetAdminByTelegramID(db, userID)
+						if currentAdmin == nil || !currentAdmin.IsSuperAdmin {
+							bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "❌ فقط سوپر ادمین می‌تواند ادمین را غیرفعال کند"))
+							continue
+						}
+
+						// Get target admin
+						var targetAdmin models.Admin
+						if err := db.First(&targetAdmin, adminIDint).Error; err != nil {
+							bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "❌ ادمین یافت نشد"))
+							continue
+						}
+
+						// Prevent disabling self
+						if targetAdmin.ID == currentAdmin.ID {
+							bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "❌ نمی‌توانید خودتان را غیرفعال کنید"))
+							continue
+						}
+
+						// Toggle admin status
+						targetAdmin.IsActive = false
+						db.Save(&targetAdmin)
+
+						// Log the action
+						targetID := targetAdmin.ID
+						details := fmt.Sprintf("ادمین %s (ID: %d) توسط %s (ID: %d) غیرفعال شد", targetAdmin.FullName, targetAdmin.TelegramID, currentAdmin.FullName, currentAdmin.TelegramID)
+						models.LogAdminAction(db, currentAdmin.ID, int64(currentAdmin.TelegramID), "disable_admin", "admin", &targetID, details)
+
+						// Update message
+						originalMsg := update.CallbackQuery.Message.Text
+						updatedMsg := originalMsg + "\n\n❌ <b>وضعیت:</b> غیرفعال شد"
+						editMsg := tgbotapi.NewEditMessageText(
+							update.CallbackQuery.Message.Chat.ID,
+							update.CallbackQuery.Message.MessageID,
+							updatedMsg,
+						)
+						editMsg.ParseMode = "HTML"
+						bot.Send(editMsg)
+
+						bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "✅ ادمین غیرفعال شد"))
+						continue
+					}
+				}
+
+				// Handle permission toggle callbacks
+				if strings.HasPrefix(data, "toggle_perm_") {
+					parts := strings.Split(strings.TrimPrefix(data, "toggle_perm_"), "_")
+					if len(parts) == 2 {
+						adminIDstr := parts[0]
+						permName := parts[1]
+						adminIDint, err := strconv.Atoi(adminIDstr)
+						if err == nil {
+							// Check if current user is super admin
+							currentAdmin, _ := models.GetAdminByTelegramID(db, userID)
+							if currentAdmin == nil || !currentAdmin.IsSuperAdmin {
+								bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "❌ فقط سوپر ادمین می‌تواند دسترسی‌ها را تغییر دهد"))
+								continue
+							}
+
+							// Get target admin
+							var targetAdmin models.Admin
+							if err := db.First(&targetAdmin, adminIDint).Error; err != nil {
+								bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "❌ ادمین یافت نشد"))
+								continue
+							}
+
+							permission := models.AdminPermission(permName)
+							hasPerm := targetAdmin.HasPermission(db, permission)
+
+							if hasPerm {
+								// Remove permission
+								targetAdmin.RemovePermission(db, permission)
+								details := fmt.Sprintf("دسترسی %s از ادمین %s (ID: %d) حذف شد", permName, targetAdmin.FullName, targetAdmin.TelegramID)
+								models.LogAdminAction(db, currentAdmin.ID, int64(currentAdmin.TelegramID), "remove_permission", "admin", &targetAdmin.ID, details)
+								bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "✅ دسترسی حذف شد"))
+							} else {
+								// Add permission
+								targetAdmin.AddPermission(db, permission)
+								details := fmt.Sprintf("دسترسی %s به ادمین %s (ID: %d) اضافه شد", permName, targetAdmin.FullName, targetAdmin.TelegramID)
+								models.LogAdminAction(db, currentAdmin.ID, int64(currentAdmin.TelegramID), "add_permission", "admin", &targetAdmin.ID, details)
+								bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "✅ دسترسی اضافه شد"))
+							}
+
+							// Refresh permissions menu
+							showAdminPermissionsMenu(bot, db, update.CallbackQuery.Message.Chat.ID, userID, &targetAdmin)
+							continue
+						}
 					}
 				}
 			}
@@ -6794,6 +7359,190 @@ func handleUserDetails(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, userID i
 	)
 
 	message := tgbotapi.NewMessage(chatID, detailsMsg)
+	message.ParseMode = "HTML"
+	message.ReplyMarkup = keyboard
+	bot.Send(message)
+}
+
+// === Admin Management Functions ===
+
+// showAdminManagementMenu shows the admin management menu for super admins
+func showAdminManagementMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) {
+	menu := tgbotapi.NewReplyKeyboard(
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("👥 مشاهده همه ادمین‌ها"),
+		),
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("➕ افزودن ادمین جدید"),
+		),
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("⚙️ تنظیم دسترسی‌ها"),
+		),
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("❌ غیرفعال کردن ادمین"),
+		),
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("⬅️ بازگشت به پنل ادمین"),
+		),
+	)
+	menu.ResizeKeyboard = true
+	menu.OneTimeKeyboard = false
+
+	helpText := `👑 <b>مدیریت ادمین‌ها</b>
+
+🔐 <b>سطوح دسترسی قابل کنترل:</b>
+
+🎯 <b>تعیین قیمت تتر</b> - تنظیم نرخ USDT
+📈 <b>تعیین درصد سود</b> - تنظیم رنج‌های ترید  
+💰 <b>تغییر دارایی کاربر</b> - مدیریت موجودی
+🔐 <b>دیدن ولت و بک‌اپ</b> - مشاهده کلیدهای خصوصی
+👁️ <b>دیدن دارایی کاربر</b> - مشاهده موجودی
+
+📋 <b>دسترسی‌های اضافی:</b>
+• مدیریت ادمین‌ها (فقط سوپر ادمین)
+• پیام همگانی
+• مدیریت برداشت‌ها  
+• مشاهده آمار
+• جستجوی کاربران
+• بکاپ دیتابیس
+• تنظیم محدودیت‌ها
+
+از منوی زیر استفاده کنید:`
+
+	msg := tgbotapi.NewMessage(chatID, helpText)
+	msg.ParseMode = "HTML"
+	msg.ReplyMarkup = menu
+	bot.Send(msg)
+}
+
+// showAllAdmins displays all admins with their permissions
+func showAllAdmins(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) {
+	admins, err := models.GetAllAdmins(db)
+	if err != nil {
+		bot.Send(tgbotapi.NewMessage(chatID, "❌ خطا در دریافت لیست ادمین‌ها!"))
+		return
+	}
+
+	if len(admins) == 0 {
+		bot.Send(tgbotapi.NewMessage(chatID, "📋 هیچ ادمینی یافت نشد!"))
+		return
+	}
+
+	for _, admin := range admins {
+		permissions, _ := admin.GetPermissions(db)
+
+		var permissionsList string
+		if admin.IsSuperAdmin {
+			permissionsList = "👑 <b>سوپر ادمین</b> (دسترسی کامل)"
+		} else {
+			if len(permissions) == 0 {
+				permissionsList = "❌ هیچ دسترسی خاصی ندارد"
+			} else {
+				permissionsList = "<b>دسترسی‌ها:</b>\n"
+				for _, perm := range permissions {
+					permissionsList += fmt.Sprintf("• %s\n", models.GetPermissionDescription(perm))
+				}
+			}
+		}
+
+		status := "✅ فعال"
+		if !admin.IsActive {
+			status = "❌ غیرفعال"
+		}
+
+		adminMsg := fmt.Sprintf(`👤 <b>ادمین #%d</b>
+
+🆔 <b>Telegram ID:</b> <code>%d</code>
+👤 <b>نام کاربری:</b> %s
+📝 <b>نام کامل:</b> %s
+📊 <b>وضعیت:</b> %s
+📅 <b>تاریخ ایجاد:</b> %s
+
+%s
+
+━━━━━━━━━━━━━━━━━━━━━━`,
+			admin.ID, admin.TelegramID,
+			getStringOrDefault(admin.Username, "تنظیم نشده"),
+			getStringOrDefault(admin.FullName, "تنظیم نشده"),
+			status,
+			admin.CreatedAt.Format("02/01/2006 15:04"),
+			permissionsList)
+
+		// Create inline keyboard for admin actions
+		keyboard := tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("⚙️ تنظیم دسترسی", fmt.Sprintf("admin_perms_%d", admin.ID)),
+				tgbotapi.NewInlineKeyboardButtonData("❌ غیرفعال", fmt.Sprintf("admin_disable_%d", admin.ID)),
+			),
+		)
+
+		message := tgbotapi.NewMessage(chatID, adminMsg)
+		message.ParseMode = "HTML"
+		message.ReplyMarkup = keyboard
+		bot.Send(message)
+	}
+}
+
+// getStringOrDefault returns the string value or a default if empty
+func getStringOrDefault(value, defaultValue string) string {
+	if value == "" {
+		return defaultValue
+	}
+	return value
+}
+
+// showAdminPermissionsMenu shows the permissions management menu for an admin
+func showAdminPermissionsMenu(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID int64, targetAdmin *models.Admin) {
+	// Get current permissions
+	permissions, _ := targetAdmin.GetPermissions(db)
+	permissionMap := make(map[models.AdminPermission]bool)
+	for _, perm := range permissions {
+		permissionMap[perm] = true
+	}
+
+	// Get all available permissions
+	allPermissions := models.GetAllPermissions()
+
+	// Build message
+	msgText := fmt.Sprintf(`⚙️ <b>تنظیم دسترسی‌های ادمین</b>
+
+👤 <b>ادمین:</b> %s
+🆔 <b>Telegram ID:</b> <code>%d</code>
+📊 <b>وضعیت:</b> %s
+
+<b>دسترسی‌های فعلی:</b>
+`, getStringOrDefault(targetAdmin.FullName, "نامشخص"), targetAdmin.TelegramID, func() string {
+		if targetAdmin.IsActive {
+			return "✅ فعال"
+		}
+		return "❌ غیرفعال"
+	}())
+
+	// Create inline keyboard with permission toggles
+	var buttons [][]tgbotapi.InlineKeyboardButton
+
+	for _, perm := range allPermissions {
+		hasPerm := permissionMap[perm]
+		status := "❌"
+		if hasPerm {
+			status = "✅"
+		}
+		buttonText := fmt.Sprintf("%s %s", status, models.GetPermissionDescription(perm))
+		callbackData := fmt.Sprintf("toggle_perm_%d_%s", targetAdmin.ID, perm)
+
+		buttons = append(buttons, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(buttonText, callbackData),
+		))
+	}
+
+	// Add back button
+	buttons = append(buttons, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("⬅️ بازگشت", "back_to_admin_list"),
+	))
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(buttons...)
+
+	message := tgbotapi.NewMessage(chatID, msgText)
 	message.ParseMode = "HTML"
 	message.ReplyMarkup = keyboard
 	bot.Send(message)
