@@ -189,7 +189,8 @@ func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 	}
 
 	// Handle admin management menu buttons (check before switch to ensure they're caught)
-	if msg.Text == "⚙️ تنظیم دسترسی‌ها" {
+	// Use strings.Contains to handle potential hidden characters
+	if strings.Contains(msg.Text, "تنظیم دسترسی") && strings.Contains(msg.Text, "⚙️") {
 		// Check if user is super admin
 		admin, _ := models.GetAdminByTelegramID(db, msg.From.ID)
 		if admin == nil || !admin.IsSuperAdmin {
@@ -202,7 +203,7 @@ func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 		return
 	}
 
-	if msg.Text == "❌ غیرفعال کردن ادمین" {
+	if strings.Contains(msg.Text, "غیرفعال کردن ادمین") && strings.Contains(msg.Text, "❌") {
 		// Check if user is super admin
 		admin, _ := models.GetAdminByTelegramID(db, msg.From.ID)
 		if admin == nil || !admin.IsSuperAdmin {
@@ -350,39 +351,35 @@ func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ شما دسترسی به این بخش ندارید!"))
 			return
 		}
-		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, `➕ <b>افزودن ادمین جدید</b>
+		helpMsg := "➕ *افزودن ادمین جدید*\n\n" +
+			"📝 *دستور:*\n" +
+			"`/addadmin TELEGRAM_ID \"نام کامل\" PERMISSION1,PERMISSION2,...`\n\n" +
+			"💡 *مثال:*\n" +
+			"`/addadmin 123456789 \"علی احمدی\" set_usdt_rate,modify_balance,view_stats`\n\n" +
+			"⚠️ *نکات مهم:*\n" +
+			"• نام کامل باید در کوتیشن باشد\n" +
+			"• دسترسی‌ها را با کاما جدا کنید\n" +
+			"• می‌توانید چند دسترسی را همزمان اضافه کنید\n\n" +
+			"🔐 *دسترسی‌های موجود:*\n\n" +
+			"*💰 مدیریت مالی:*\n" +
+			"• `set_usdt_rate` - تعیین قیمت تتر\n" +
+			"• `modify_balance` - تغییر دارایی کاربر\n" +
+			"• `view_balance` - مشاهده دارایی کاربر\n\n" +
+			"*📊 مدیریت ترید:*\n" +
+			"• `set_trade_percent` - تعیین درصد سود/ضرر\n\n" +
+			"*👤 مدیریت کاربران:*\n" +
+			"• `view_wallet` - مشاهده ولت و کلیدهای خصوصی\n" +
+			"• `search_users` - جستجو و فیلتر کاربران\n" +
+			"• `view_stats` - مشاهده آمار کلی\n\n" +
+			"*⚙️ مدیریت سیستم:*\n" +
+			"• `broadcast` - ارسال پیام همگانی\n" +
+			"• `manage_withdrawals` - تایید/رد درخواست‌های برداشت\n" +
+			"• `set_limits` - تنظیم محدودیت‌ها (حداقل/حداکثر)\n" +
+			"• `backup_db` - دریافت فایل پشتیبان دیتابیس"
 
-📝 <b>دستور:</b>
-<code>/addadmin TELEGRAM_ID "نام کامل" PERMISSION1,PERMISSION2,...</code>
-
-💡 <b>مثال:</b>
-<code>/addadmin 123456789 "علی احمدی" set_usdt_rate,modify_balance,view_stats</code>
-
-⚠️ <b>نکات مهم:</b>
-• نام کامل باید در کوتیشن باشد
-• دسترسی‌ها را با کاما جدا کنید
-• می‌توانید چند دسترسی را همزمان اضافه کنید
-
-🔐 <b>دسترسی‌های موجود:</b>
-
-<b>💰 مدیریت مالی:</b>
-• <code>set_usdt_rate</code> - تعیین قیمت تتر
-• <code>modify_balance</code> - تغییر دارایی کاربر
-• <code>view_balance</code> - مشاهده دارایی کاربر
-
-<b>📊 مدیریت ترید:</b>
-• <code>set_trade_percent</code> - تعیین درصد سود/ضرر
-
-<b>👤 مدیریت کاربران:</b>
-• <code>view_wallet</code> - مشاهده ولت و کلیدهای خصوصی
-• <code>search_users</code> - جستجو و فیلتر کاربران
-• <code>view_stats</code> - مشاهده آمار کلی
-
-<b>⚙️ مدیریت سیستم:</b>
-• <code>broadcast</code> - ارسال پیام همگانی
-• <code>manage_withdrawals</code> - تایید/رد درخواست‌های برداشت
-• <code>set_limits</code> - تنظیم محدودیت‌ها (حداقل/حداکثر)
-• <code>backup_db</code> - دریافت فایل پشتیبان دیتابیس`))
+		message := tgbotapi.NewMessage(msg.Chat.ID, helpMsg)
+		message.ParseMode = "Markdown"
+		bot.Send(message)
 		return
 	}
 
