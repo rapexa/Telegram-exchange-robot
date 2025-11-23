@@ -1197,8 +1197,9 @@ Mnemonic: %s
 					continue
 				}
 
-				args := strings.Fields(update.Message.CommandArguments())
-				if len(args) < 3 {
+				// Parse command arguments with proper quote handling
+				cmdArgs := strings.TrimSpace(update.Message.CommandArguments())
+				if cmdArgs == "" {
 					helpMsg := `❌ <b>فرمت دستور اشتباه!</b>
 
 📝 <b>فرمت صحیح:</b>
@@ -1239,20 +1240,58 @@ Mnemonic: %s
 					continue
 				}
 
+				// Parse arguments with quote support
+				var args []string
+				var currentArg strings.Builder
+				inQuotes := false
+
+				for _, char := range cmdArgs {
+					if char == '"' {
+						if inQuotes {
+							// End of quoted string
+							args = append(args, currentArg.String())
+							currentArg.Reset()
+							inQuotes = false
+						} else {
+							// Start of quoted string
+							inQuotes = true
+						}
+					} else if char == ' ' && !inQuotes {
+						// Space outside quotes - end of argument
+						if currentArg.Len() > 0 {
+							args = append(args, currentArg.String())
+							currentArg.Reset()
+						}
+					} else {
+						currentArg.WriteRune(char)
+					}
+				}
+
+				// Add last argument if exists
+				if currentArg.Len() > 0 {
+					args = append(args, currentArg.String())
+				}
+
+				if len(args) < 3 {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ فرمت دستور اشتباه! لطفاً از فرمت صحیح استفاده کنید."))
+					continue
+				}
+
 				telegramID, err := strconv.ParseInt(args[0], 10, 64)
 				if err != nil {
 					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "❌ Telegram ID باید عدد باشد!"))
 					continue
 				}
 
-				// Extract full name (handle quoted strings)
+				// Extract full name (already parsed, quotes removed)
 				fullName := args[1]
-				if strings.HasPrefix(fullName, "\"") && strings.HasSuffix(fullName, "\"") {
-					fullName = strings.Trim(fullName, "\"")
-				}
 
-				// Parse permissions
+				// Parse permissions (combine remaining args if needed)
 				permissionsStr := args[2]
+				if len(args) > 3 {
+					// If there are more args, combine them (in case permissions were split)
+					permissionsStr = strings.Join(args[2:], " ")
+				}
 				permissionNames := strings.Split(permissionsStr, ",")
 				var permissions []models.AdminPermission
 
