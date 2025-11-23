@@ -190,6 +190,11 @@ func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 
 	// Handle admin management menu buttons (check before switch to ensure they're caught)
 	// Use strings.Contains to handle potential hidden characters
+	// Debug log for admin menu buttons
+	if strings.Contains(msg.Text, "تنظیم دسترسی") || strings.Contains(msg.Text, "غیرفعال") {
+		log.Printf("[DEBUG] Admin menu button received: %q (length: %d)", msg.Text, len(msg.Text))
+	}
+
 	if strings.Contains(msg.Text, "تنظیم دسترسی") && strings.Contains(msg.Text, "⚙️") {
 		// Check if user is super admin
 		admin, _ := models.GetAdminByTelegramID(db, msg.From.ID)
@@ -203,7 +208,8 @@ func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 		return
 	}
 
-	if strings.Contains(msg.Text, "غیرفعال کردن ادمین") && strings.Contains(msg.Text, "❌") {
+	// Check for "غیرفعال کردن ادمین" - use more flexible matching
+	if strings.Contains(msg.Text, "غیرفعال") && strings.Contains(msg.Text, "ادمین") {
 		// Check if user is super admin
 		admin, _ := models.GetAdminByTelegramID(db, msg.From.ID)
 		if admin == nil || !admin.IsSuperAdmin {
