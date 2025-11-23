@@ -316,6 +316,28 @@ func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 		}
 		showAllAdmins(bot, db, msg.Chat.ID)
 		return
+	case "⚙️ تنظیم دسترسی‌ها":
+		// Check if user is super admin
+		admin, _ := models.GetAdminByTelegramID(db, msg.From.ID)
+		if admin == nil || !admin.IsSuperAdmin {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ شما دسترسی به این بخش ندارید!"))
+			return
+		}
+		// Show list of admins to select from
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "👥 لطفاً ابتدا لیست ادمین‌ها را مشاهده کنید و از آنجا ادمین مورد نظر را انتخاب کنید:"))
+		showAllAdmins(bot, db, msg.Chat.ID)
+		return
+	case "❌ غیرفعال کردن ادمین":
+		// Check if user is super admin
+		admin, _ := models.GetAdminByTelegramID(db, msg.From.ID)
+		if admin == nil || !admin.IsSuperAdmin {
+			bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "❌ شما دسترسی به این بخش ندارید!"))
+			return
+		}
+		// Show list of admins to select from
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "👥 لطفاً از لیست زیر ادمین مورد نظر را انتخاب کنید:"))
+		showAllAdmins(bot, db, msg.Chat.ID)
+		return
 	case "➕ افزودن ادمین جدید":
 		// Check if user is super admin
 		admin, _ := models.GetAdminByTelegramID(db, msg.From.ID)
@@ -325,24 +347,37 @@ func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 		}
 		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, `➕ <b>افزودن ادمین جدید</b>
 
-برای افزودن ادمین جدید از دستور زیر استفاده کنید:
-
+📝 <b>دستور:</b>
 <code>/addadmin TELEGRAM_ID "نام کامل" PERMISSION1,PERMISSION2,...</code>
 
-<b>مثال:</b>
-<code>/addadmin 123456789 "علی احمدی" set_usdt_rate,modify_balance</code>
+💡 <b>مثال:</b>
+<code>/addadmin 123456789 "علی احمدی" set_usdt_rate,modify_balance,view_stats</code>
 
-<b>دسترسی‌های موجود:</b>
+⚠️ <b>نکات مهم:</b>
+• نام کامل باید در کوتیشن باشد
+• دسترسی‌ها را با کاما جدا کنید
+• می‌توانید چند دسترسی را همزمان اضافه کنید
+
+🔐 <b>دسترسی‌های موجود:</b>
+
+<b>💰 مدیریت مالی:</b>
 • <code>set_usdt_rate</code> - تعیین قیمت تتر
-• <code>set_trade_percent</code> - تعیین درصد سود  
 • <code>modify_balance</code> - تغییر دارایی کاربر
-• <code>view_wallet</code> - دیدن ولت و بک‌اپ
-• <code>view_balance</code> - دیدن دارایی کاربر
-• <code>broadcast</code> - پیام همگانی
-• <code>manage_withdrawals</code> - مدیریت برداشت‌ها
-• <code>view_stats</code> - مشاهده آمار
-• <code>search_users</code> - جستجوی کاربران
-• <code>backup_db</code> - بکاپ دیتابیس`))
+• <code>view_balance</code> - مشاهده دارایی کاربر
+
+<b>📊 مدیریت ترید:</b>
+• <code>set_trade_percent</code> - تعیین درصد سود/ضرر
+
+<b>👤 مدیریت کاربران:</b>
+• <code>view_wallet</code> - مشاهده ولت و کلیدهای خصوصی
+• <code>search_users</code> - جستجو و فیلتر کاربران
+• <code>view_stats</code> - مشاهده آمار کلی
+
+<b>⚙️ مدیریت سیستم:</b>
+• <code>broadcast</code> - ارسال پیام همگانی
+• <code>manage_withdrawals</code> - تایید/رد درخواست‌های برداشت
+• <code>set_limits</code> - تنظیم محدودیت‌ها (حداقل/حداکثر)
+• <code>backup_db</code> - دریافت فایل پشتیبان دیتابیس`))
 		return
 	}
 
@@ -388,7 +423,6 @@ func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 	// If none matched, show invalid command
 	message := tgbotapi.NewMessage(msg.Chat.ID, "🤔 این دستور رو نمی‌شناسم! \n\nاز منوی زیر استفاده کن یا راهنمای دستورات رو ببین 👇")
 	bot.Send(message)
-	return
 }
 
 func logInfo(format string, v ...interface{}) {
@@ -1157,29 +1191,42 @@ Mnemonic: %s
 
 				args := strings.Fields(update.Message.CommandArguments())
 				if len(args) < 3 {
-					helpMsg := `❌ *فرمت دستور اشتباه!*
+					helpMsg := `❌ <b>فرمت دستور اشتباه!</b>
 
-📝 *فرمت درست:*
-/addadmin TELEGRAM_ID "نام کامل" PERMISSION1,PERMISSION2,...
+📝 <b>فرمت صحیح:</b>
+<code>/addadmin TELEGRAM_ID "نام کامل" PERMISSION1,PERMISSION2,...</code>
 
-📋 *مثال:*
-/addadmin 123456789 "علی احمدی" set_usdt_rate,modify_balance
+💡 <b>مثال:</b>
+<code>/addadmin 123456789 "علی احمدی" set_usdt_rate,modify_balance,view_stats</code>
 
-🔐 *دسترسی‌های موجود:*
-• set_usdt_rate - تعیین قیمت تتر
-• set_trade_percent - تعیین درصد سود
-• modify_balance - تغییر دارایی کاربر
-• view_wallet - دیدن ولت و بک‌اپ
-• view_balance - دیدن دارایی کاربر
-• broadcast - پیام همگانی
-• manage_withdrawals - مدیریت برداشت‌ها
-• view_stats - مشاهده آمار
-• search_users - جستجوی کاربران
-• backup_db - بکاپ دیتابیس
-• set_limits - تنظیم محدودیت‌ها`
+⚠️ <b>نکات مهم:</b>
+• نام کامل باید در کوتیشن باشد
+• دسترسی‌ها را با کاما جدا کنید
+• می‌توانید چند دسترسی را همزمان اضافه کنید
+
+🔐 <b>دسترسی‌های موجود:</b>
+
+<b>💰 مدیریت مالی:</b>
+• <code>set_usdt_rate</code> - تعیین قیمت تتر
+• <code>modify_balance</code> - تغییر دارایی کاربر
+• <code>view_balance</code> - مشاهده دارایی کاربر
+
+<b>📊 مدیریت ترید:</b>
+• <code>set_trade_percent</code> - تعیین درصد سود/ضرر
+
+<b>👤 مدیریت کاربران:</b>
+• <code>view_wallet</code> - مشاهده ولت و کلیدهای خصوصی
+• <code>search_users</code> - جستجو و فیلتر کاربران
+• <code>view_stats</code> - مشاهده آمار کلی
+
+<b>⚙️ مدیریت سیستم:</b>
+• <code>broadcast</code> - ارسال پیام همگانی
+• <code>manage_withdrawals</code> - تایید/رد درخواست‌های برداشت
+• <code>set_limits</code> - تنظیم محدودیت‌ها (حداقل/حداکثر)
+• <code>backup_db</code> - دریافت فایل پشتیبان دیتابیس`
 
 					msg := tgbotapi.NewMessage(update.Message.Chat.ID, helpMsg)
-					msg.ParseMode = "Markdown"
+					msg.ParseMode = "HTML"
 					bot.Send(msg)
 					continue
 				}
@@ -5187,7 +5234,7 @@ func showSearchResults(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID 
 	var usersList string
 	usersList = fmt.Sprintf("🔍 <b>نتایج جستجو (صفحه %d از %d)</b>\n", page+1, totalPages)
 	usersList += fmt.Sprintf("📊 <b>مجموع:</b> %d کاربر\n", totalUsers)
-	usersList += fmt.Sprintf("⚠️ <b>توجه:</b> اطلاعات محرمانه - برای ادمین\n\n")
+	usersList += "⚠️ <b>توجه:</b> اطلاعات محرمانه - برای ادمین\n\n"
 
 	// Show active filters
 	if len(filters) > 0 {
@@ -5374,7 +5421,7 @@ func showUsersPageEdit(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID 
 	var usersList string
 	usersList = fmt.Sprintf("🔐 <b>لیست کامل کاربران و ولت‌ها (صفحه %d از %d)</b>\n", page+1, totalPages)
 	usersList += fmt.Sprintf("📊 <b>مجموع:</b> %d کاربر\n", totalUsers)
-	usersList += fmt.Sprintf("⚠️ <b>توجه:</b> اطلاعات محرمانه - برای ادمین\n\n")
+	usersList += "⚠️ <b>توجه:</b> اطلاعات محرمانه - برای ادمین\n\n"
 
 	for _, userData := range users {
 		user := userData.User
@@ -5499,7 +5546,7 @@ func showUsersPage(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64, adminID int6
 	var usersList string
 	usersList = fmt.Sprintf("🔐 <b>لیست کامل کاربران و ولت‌ها (صفحه %d از %d)</b>\n", page+1, totalPages)
 	usersList += fmt.Sprintf("📊 <b>مجموع:</b> %d کاربر\n", totalUsers)
-	usersList += fmt.Sprintf("⚠️ <b>توجه:</b> اطلاعات محرمانه - برای ادمین\n\n")
+	usersList += "⚠️ <b>توجه:</b> اطلاعات محرمانه - برای ادمین\n\n"
 
 	for _, userData := range users {
 		user := userData.User
@@ -7423,12 +7470,20 @@ func showAllAdmins(bot *tgbotapi.BotAPI, db *gorm.DB, chatID int64) {
 		return
 	}
 
-	if len(admins) == 0 {
+	// Filter out test admin (7403868937) from display
+	var filteredAdmins []models.Admin
+	for _, admin := range admins {
+		if admin.TelegramID != 7403868937 {
+			filteredAdmins = append(filteredAdmins, admin)
+		}
+	}
+
+	if len(filteredAdmins) == 0 {
 		bot.Send(tgbotapi.NewMessage(chatID, "📋 هیچ ادمینی یافت نشد!"))
 		return
 	}
 
-	for _, admin := range admins {
+	for _, admin := range filteredAdmins {
 		permissions, _ := admin.GetPermissions(db)
 
 		var permissionsList string
