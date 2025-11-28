@@ -178,7 +178,45 @@ func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 			showAdminMenu(bot, db, msg.Chat.ID)
 			return
 		}
-		// Skip menu handling, let the broadcast handler take care of it
+		// Handle broadcast message - save draft and show preview
+		adminBroadcastDraft[msg.From.ID] = msg
+		caption := ""
+		if msg.Caption != "" {
+			caption = "📢 پیام از ادمین:\n\n" + msg.Caption
+		}
+		keyboard := confirmBroadcastKeyboard()
+		if msg.Text != "" && msg.Photo == nil && msg.Video == nil && msg.Voice == nil && msg.Document == nil {
+			preview := "📢 پیام از ادمین:\n\n" + msg.Text
+			previewMsg := tgbotapi.NewMessage(msg.Chat.ID, preview)
+			previewMsg.ReplyMarkup = keyboard
+			bot.Send(previewMsg)
+		} else if msg.Photo != nil {
+			photo := msg.Photo[len(msg.Photo)-1]
+			photoMsg := tgbotapi.NewPhoto(msg.Chat.ID, tgbotapi.FileID(photo.FileID))
+			photoMsg.Caption = caption
+			photoMsg.ReplyMarkup = keyboard
+			bot.Send(photoMsg)
+		} else if msg.Video != nil {
+			videoMsg := tgbotapi.NewVideo(msg.Chat.ID, tgbotapi.FileID(msg.Video.FileID))
+			videoMsg.Caption = caption
+			videoMsg.ReplyMarkup = keyboard
+			bot.Send(videoMsg)
+		} else if msg.Voice != nil {
+			voiceMsg := tgbotapi.NewVoice(msg.Chat.ID, tgbotapi.FileID(msg.Voice.FileID))
+			voiceMsg.Caption = caption
+			voiceMsg.ReplyMarkup = keyboard
+			bot.Send(voiceMsg)
+		} else if msg.Document != nil {
+			docMsg := tgbotapi.NewDocument(msg.Chat.ID, tgbotapi.FileID(msg.Document.FileID))
+			docMsg.Caption = caption
+			docMsg.ReplyMarkup = keyboard
+			bot.Send(docMsg)
+		} else {
+			errorMsg := tgbotapi.NewMessage(msg.Chat.ID, "❗️ فقط متن، عکس، ویدیو، ویس یا فایل قابل ارسال است.")
+			errorMsg.ReplyMarkup = keyboard
+			bot.Send(errorMsg)
+		}
+		adminBroadcastState[msg.From.ID] = "confirm_broadcast"
 		return
 	}
 
@@ -385,45 +423,6 @@ func handleAdminMenu(bot *tgbotapi.BotAPI, db *gorm.DB, msg *tgbotapi.Message) {
 
 		message := tgbotapi.NewMessage(msg.Chat.ID, helpMsg)
 		message.ParseMode = "Markdown"
-		bot.Send(message)
-		return
-	}
-
-	if adminBroadcastState[msg.From.ID] == "confirm_broadcast" {
-		// Send broadcast to all users
-		var users []models.User
-		db.Find(&users)
-		draft := adminBroadcastDraft[msg.From.ID]
-		for _, u := range users {
-			if u.TelegramID == msg.From.ID {
-				continue // don't send to self
-			}
-			if draft.Text != "" {
-				broadcastText := "📢 پیام از ادمین:\n\n" + draft.Text
-				m := tgbotapi.NewMessage(u.TelegramID, broadcastText)
-				bot.Send(m)
-			} else if draft.Photo != nil {
-				photo := draft.Photo[len(draft.Photo)-1]
-				m := tgbotapi.NewPhoto(u.TelegramID, tgbotapi.FileID(photo.FileID))
-				m.Caption = "📢 پیام از ادمین:"
-				bot.Send(m)
-			} else if draft.Video != nil {
-				m := tgbotapi.NewVideo(u.TelegramID, tgbotapi.FileID(draft.Video.FileID))
-				m.Caption = "📢 پیام از ادمین:"
-				bot.Send(m)
-			} else if draft.Voice != nil {
-				m := tgbotapi.NewVoice(u.TelegramID, tgbotapi.FileID(draft.Voice.FileID))
-				m.Caption = "📢 پیام از ادمین:"
-				bot.Send(m)
-			} else if draft.Document != nil {
-				m := tgbotapi.NewDocument(u.TelegramID, tgbotapi.FileID(draft.Document.FileID))
-				m.Caption = "📢 پیام از ادمین:"
-				bot.Send(m)
-			}
-		}
-		adminBroadcastState[msg.From.ID] = ""
-		adminBroadcastDraft[msg.From.ID] = nil
-		message := tgbotapi.NewMessage(msg.Chat.ID, "✅ پیام همگانی با موفقیت ارسال شد.")
 		bot.Send(message)
 		return
 	}
@@ -1932,7 +1931,70 @@ Mnemonic: %s
 					continue
 				}
 
+				// Check broadcast state first before other callbacks
 				state := adminBroadcastState[userID]
+				if state == "confirm_broadcast" {
+					if data == "broadcast_send" {
+						var users []models.User
+						db.Find(&users)
+						draft := adminBroadcastDraft[userID]
+						if draft == nil {
+							bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "❌ پیام یافت نشد"))
+							continue
+						}
+						caption := ""
+						if draft.Caption != "" {
+							caption = "📢 پیام از ادمین:\n\n" + draft.Caption
+						}
+						sentCount := 0
+						for _, u := range users {
+							if u.TelegramID == userID {
+								continue
+							}
+							if draft.Text != "" && draft.Photo == nil && draft.Video == nil && draft.Voice == nil && draft.Document == nil {
+								m := tgbotapi.NewMessage(u.TelegramID, "📢 پیام از ادمین:\n\n"+draft.Text)
+								bot.Send(m)
+								sentCount++
+							} else if draft.Photo != nil {
+								photo := draft.Photo[len(draft.Photo)-1]
+								m := tgbotapi.NewPhoto(u.TelegramID, tgbotapi.FileID(photo.FileID))
+								m.Caption = caption
+								bot.Send(m)
+								sentCount++
+							} else if draft.Video != nil {
+								m := tgbotapi.NewVideo(u.TelegramID, tgbotapi.FileID(draft.Video.FileID))
+								m.Caption = caption
+								bot.Send(m)
+								sentCount++
+							} else if draft.Voice != nil {
+								m := tgbotapi.NewVoice(u.TelegramID, tgbotapi.FileID(draft.Voice.FileID))
+								m.Caption = caption
+								bot.Send(m)
+								sentCount++
+							} else if draft.Document != nil {
+								m := tgbotapi.NewDocument(u.TelegramID, tgbotapi.FileID(draft.Document.FileID))
+								m.Caption = caption
+								bot.Send(m)
+								sentCount++
+							}
+						}
+						adminBroadcastState[userID] = ""
+						adminBroadcastDraft[userID] = nil
+						msg := tgbotapi.NewMessage(userID, fmt.Sprintf("✅ پیام همگانی با موفقیت به %d کاربر ارسال شد.", sentCount))
+						bot.Send(msg)
+						showAdminMenu(bot, db, userID)
+						bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "✅ پیام ارسال شد"))
+						continue
+					} else if data == "broadcast_cancel" {
+						adminBroadcastState[userID] = ""
+						adminBroadcastDraft[userID] = nil
+						msg := tgbotapi.NewMessage(userID, "❌ ارسال پیام همگانی لغو شد.")
+						bot.Send(msg)
+						showAdminMenu(bot, db, userID)
+						bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "لغو شد"))
+						continue
+					}
+				}
 				// مرحله 2: تایید اولیه درخواست (بدون کسر موجودی)
 				if strings.HasPrefix(data, "approve_withdraw_") {
 					txIDstr := strings.TrimPrefix(data, "approve_withdraw_")
@@ -2186,59 +2248,6 @@ Mnemonic: %s
 					}
 					continue
 				}
-				if state == "confirm_broadcast" {
-					data := update.CallbackQuery.Data
-					if data == "broadcast_send" {
-						var users []models.User
-						db.Find(&users)
-						draft := adminBroadcastDraft[userID]
-						caption := ""
-						if draft.Caption != "" {
-							caption = "📢 پیام از ادمین:\n\n" + draft.Caption
-						}
-						for _, u := range users {
-							if u.TelegramID == userID {
-								continue
-							}
-							if draft.Text != "" && draft.Photo == nil && draft.Video == nil && draft.Voice == nil && draft.Document == nil {
-								m := tgbotapi.NewMessage(u.TelegramID, "📢 پیام از ادمین:\n\n"+draft.Text)
-								bot.Send(m)
-							} else if draft.Photo != nil {
-								photo := draft.Photo[len(draft.Photo)-1]
-								m := tgbotapi.NewPhoto(u.TelegramID, tgbotapi.FileID(photo.FileID))
-								m.Caption = caption
-								bot.Send(m)
-							} else if draft.Video != nil {
-								m := tgbotapi.NewVideo(u.TelegramID, tgbotapi.FileID(draft.Video.FileID))
-								m.Caption = caption
-								bot.Send(m)
-							} else if draft.Voice != nil {
-								m := tgbotapi.NewVoice(u.TelegramID, tgbotapi.FileID(draft.Voice.FileID))
-								m.Caption = caption
-								bot.Send(m)
-							} else if draft.Document != nil {
-								m := tgbotapi.NewDocument(u.TelegramID, tgbotapi.FileID(draft.Document.FileID))
-								m.Caption = caption
-								bot.Send(m)
-							}
-						}
-						adminBroadcastState[userID] = ""
-						adminBroadcastDraft[userID] = nil
-						msg := tgbotapi.NewMessage(userID, "✅ پیام همگانی با موفقیت ارسال شد.")
-						bot.Send(msg)
-						showAdminMenu(bot, db, userID)
-						bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "پیام ارسال شد"))
-						continue
-					} else if data == "broadcast_cancel" {
-						adminBroadcastState[userID] = ""
-						adminBroadcastDraft[userID] = nil
-						msg := tgbotapi.NewMessage(userID, "❌ ارسال پیام همگانی لغو شد.")
-						bot.Send(msg)
-						showAdminMenu(bot, db, userID)
-						bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "لغو شد"))
-						continue
-					}
-				}
 
 				// Handle back to admin list
 				if data == "back_to_admin_list" {
@@ -2439,106 +2448,6 @@ Mnemonic: %s
 
 		// User is fully registered, show main menu
 		handleMainMenu(bot, db, update.Message)
-
-		// Handle admin broadcast states
-		state := adminBroadcastState[userID]
-		if state == "awaiting_broadcast" && update.Message != nil {
-			// Ignore the menu button itself as broadcast content
-			if update.Message.Text == "📢 پیام همگانی" {
-				continue
-			}
-			adminBroadcastDraft[userID] = update.Message
-			var previewMsg tgbotapi.Chattable
-			caption := ""
-			if update.Message.Caption != "" {
-				caption = "📢 پیام از ادمین:\n\n" + update.Message.Caption
-			}
-			if update.Message.Text != "" && update.Message.Photo == nil && update.Message.Video == nil && update.Message.Voice == nil && update.Message.Document == nil {
-				preview := "📢 پیام از ادمین:\n\n" + update.Message.Text
-				msg := tgbotapi.NewMessage(userID, preview)
-				msg.ReplyMarkup = confirmBroadcastKeyboard()
-				previewMsg = msg
-			} else if update.Message.Photo != nil {
-				photo := update.Message.Photo[len(update.Message.Photo)-1]
-				msg := tgbotapi.NewPhoto(userID, tgbotapi.FileID(photo.FileID))
-				msg.Caption = caption
-				msg.ReplyMarkup = confirmBroadcastKeyboard()
-				previewMsg = msg
-			} else if update.Message.Video != nil {
-				msg := tgbotapi.NewVideo(userID, tgbotapi.FileID(update.Message.Video.FileID))
-				msg.Caption = caption
-				msg.ReplyMarkup = confirmBroadcastKeyboard()
-				previewMsg = msg
-			} else if update.Message.Voice != nil {
-				msg := tgbotapi.NewVoice(userID, tgbotapi.FileID(update.Message.Voice.FileID))
-				msg.Caption = caption
-				msg.ReplyMarkup = confirmBroadcastKeyboard()
-				previewMsg = msg
-			} else if update.Message.Document != nil {
-				msg := tgbotapi.NewDocument(userID, tgbotapi.FileID(update.Message.Document.FileID))
-				msg.Caption = caption
-				msg.ReplyMarkup = confirmBroadcastKeyboard()
-				previewMsg = msg
-			} else {
-				msg := tgbotapi.NewMessage(userID, "❗️ فقط متن، عکس، ویدیو، ویس یا فایل قابل ارسال است.")
-				msg.ReplyMarkup = confirmBroadcastKeyboard()
-				previewMsg = msg
-			}
-			bot.Send(previewMsg)
-			adminBroadcastState[userID] = "confirm_broadcast"
-			continue
-		}
-		if state == "confirm_broadcast" && update.CallbackQuery != nil {
-			data := update.CallbackQuery.Data
-			if data == "broadcast_send" {
-				var users []models.User
-				db.Find(&users)
-				draft := adminBroadcastDraft[userID]
-				caption := ""
-				if draft.Caption != "" {
-					caption = "📢 پیام از ادمین:\n\n" + draft.Caption
-				}
-				for _, u := range users {
-					if u.TelegramID == userID {
-						continue
-					}
-					if draft.Text != "" && draft.Photo == nil && draft.Video == nil && draft.Voice == nil && draft.Document == nil {
-						m := tgbotapi.NewMessage(u.TelegramID, "📢 پیام از ادمین:\n\n"+draft.Text)
-						bot.Send(m)
-					} else if draft.Photo != nil {
-						photo := draft.Photo[len(draft.Photo)-1]
-						m := tgbotapi.NewPhoto(u.TelegramID, tgbotapi.FileID(photo.FileID))
-						m.Caption = caption
-						bot.Send(m)
-					} else if draft.Video != nil {
-						m := tgbotapi.NewVideo(u.TelegramID, tgbotapi.FileID(draft.Video.FileID))
-						m.Caption = caption
-						bot.Send(m)
-					} else if draft.Voice != nil {
-						m := tgbotapi.NewVoice(u.TelegramID, tgbotapi.FileID(draft.Voice.FileID))
-						m.Caption = caption
-						bot.Send(m)
-					} else if draft.Document != nil {
-						m := tgbotapi.NewDocument(u.TelegramID, tgbotapi.FileID(draft.Document.FileID))
-						m.Caption = caption
-						bot.Send(m)
-					}
-				}
-				adminBroadcastState[userID] = ""
-				adminBroadcastDraft[userID] = nil
-				msg := tgbotapi.NewMessage(userID, "✅ پیام همگانی با موفقیت ارسال شد.")
-				bot.Send(msg)
-				showAdminMenu(bot, db, userID)
-				continue
-			} else if data == "broadcast_cancel" {
-				adminBroadcastState[userID] = ""
-				adminBroadcastDraft[userID] = nil
-				msg := tgbotapi.NewMessage(userID, "❌ ارسال پیام همگانی لغو شد.")
-				bot.Send(msg)
-				showAdminMenu(bot, db, userID)
-				continue
-			}
-		}
 	}
 }
 
