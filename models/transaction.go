@@ -86,6 +86,157 @@ func FetchUSDTTransfers(address, network, apiKey string) ([]map[string]interface
 	return result.Result, nil
 }
 
+// SyncStats holds statistics about blockchain sync operation
+type SyncStats struct {
+	TotalUsers          int
+	NewDeposits         int
+	NewWithdrawals      int
+	NewERC20Deposits    int
+	NewERC20Withdrawals int
+	NewBEP20Deposits    int
+	NewBEP20Withdrawals int
+	SkippedTransactions int
+	Error               error
+}
+
+// SyncAllUserDepositsWithStats fetches and stores new transactions with detailed statistics
+func SyncAllUserDepositsWithStats(db *gorm.DB, apiKey string) SyncStats {
+	stats := SyncStats{}
+	var users []User
+	if err := db.Find(&users).Error; err != nil {
+		stats.Error = err
+		return stats
+	}
+
+	stats.TotalUsers = len(users)
+
+	for _, user := range users {
+		// ERC20
+		if user.ERC20Address != "" {
+			txs, err := FetchUSDTTransfers(user.ERC20Address, "ERC20", apiKey)
+			if err == nil {
+				for _, tx := range txs {
+					txHash, _ := tx["hash"].(string)
+					amountStr, _ := tx["value"].(string)
+					amountFloat := parseUSDTAmount(amountStr)
+					// Deposit: incoming transfers to this address
+					if to, ok := tx["to"].(string); ok && strings.EqualFold(to, user.ERC20Address) {
+						var count int64
+						db.Model(&Transaction{}).Where("tx_hash = ? AND network = ?", txHash, "ERC20").Count(&count)
+						if count == 0 {
+							t := Transaction{
+								UserID:  user.ID,
+								Type:    "deposit",
+								Network: "ERC20",
+								Amount:  amountFloat,
+								TxHash:  txHash,
+								Status:  "confirmed",
+							}
+							db.Create(&t)
+
+							// به‌روزرسانی موجودی کاربر
+							user.ERC20Balance += amountFloat
+							db.Save(&user)
+
+							stats.NewDeposits++
+							stats.NewERC20Deposits++
+						} else {
+							stats.SkippedTransactions++
+						}
+					}
+					// Withdraw: outgoing transfers from this address
+					if from, ok := tx["from"].(string); ok && strings.EqualFold(from, user.ERC20Address) {
+						var count int64
+						db.Model(&Transaction{}).Where("tx_hash = ? AND network = ?", txHash, "ERC20").Count(&count)
+						if count == 0 {
+							t := Transaction{
+								UserID:  user.ID,
+								Type:    "withdraw",
+								Network: "ERC20",
+								Amount:  amountFloat,
+								TxHash:  txHash,
+								Status:  "confirmed",
+							}
+							db.Create(&t)
+
+							// به‌روزرسانی موجودی کاربر
+							user.ERC20Balance -= amountFloat
+							db.Save(&user)
+
+							stats.NewWithdrawals++
+							stats.NewERC20Withdrawals++
+						} else {
+							stats.SkippedTransactions++
+						}
+					}
+				}
+			}
+		}
+		// BEP20
+		if user.BEP20Address != "" {
+			txs, err := FetchUSDTTransfers(user.BEP20Address, "BEP20", apiKey)
+			if err == nil {
+				for _, tx := range txs {
+					txHash, _ := tx["hash"].(string)
+					amountStr, _ := tx["value"].(string)
+					amountFloat := parseUSDTAmount(amountStr)
+					// Deposit: incoming transfers to this address
+					if to, ok := tx["to"].(string); ok && strings.EqualFold(to, user.BEP20Address) {
+						var count int64
+						db.Model(&Transaction{}).Where("tx_hash = ? AND network = ?", txHash, "BEP20").Count(&count)
+						if count == 0 {
+							t := Transaction{
+								UserID:  user.ID,
+								Type:    "deposit",
+								Network: "BEP20",
+								Amount:  amountFloat,
+								TxHash:  txHash,
+								Status:  "confirmed",
+							}
+							db.Create(&t)
+
+							// به‌روزرسانی موجودی کاربر
+							user.BEP20Balance += amountFloat
+							db.Save(&user)
+
+							stats.NewDeposits++
+							stats.NewBEP20Deposits++
+						} else {
+							stats.SkippedTransactions++
+						}
+					}
+					// Withdraw: outgoing transfers from this address
+					if from, ok := tx["from"].(string); ok && strings.EqualFold(from, user.BEP20Address) {
+						var count int64
+						db.Model(&Transaction{}).Where("tx_hash = ? AND network = ?", txHash, "BEP20").Count(&count)
+						if count == 0 {
+							t := Transaction{
+								UserID:  user.ID,
+								Type:    "withdraw",
+								Network: "BEP20",
+								Amount:  amountFloat,
+								TxHash:  txHash,
+								Status:  "confirmed",
+							}
+							db.Create(&t)
+
+							// به‌روزرسانی موجودی کاربر
+							user.BEP20Balance -= amountFloat
+							db.Save(&user)
+
+							stats.NewWithdrawals++
+							stats.NewBEP20Withdrawals++
+						} else {
+							stats.SkippedTransactions++
+						}
+					}
+				}
+			}
+		}
+	}
+	return stats
+}
+
 // SyncAllUserDeposits fetches and stores new deposit transactions for all users
 func SyncAllUserDeposits(db *gorm.DB, apiKey string) error {
 	var users []User

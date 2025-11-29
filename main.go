@@ -168,12 +168,23 @@ func main() {
 	// logInfo("🎁 Processing referral rewards for existing deposits...")
 	// handlers.ProcessReferralRewardsForDeposits(bot, db)
 
-	// Run blockchain deposit sync once at startup
-	err = models.SyncAllUserDeposits(db, cfg.EtherscanAPIKey)
-	if err != nil {
-		logError("Initial blockchain sync error: %v", err)
+	// Run comprehensive blockchain sync at startup
+	logInfo("🔗 Starting comprehensive blockchain sync at startup...")
+	startupSyncStats := models.SyncAllUserDepositsWithStats(db, cfg.EtherscanAPIKey)
+	if startupSyncStats.Error != nil {
+		logError("Initial blockchain sync error: %v", startupSyncStats.Error)
 	} else {
-		logInfo("Initial blockchain deposit sync completed successfully")
+		logInfo("✅ Startup blockchain sync completed:")
+		logInfo("   📊 Total users checked: %d", startupSyncStats.TotalUsers)
+		logInfo("   💰 New deposits found: %d (ERC20: %d, BEP20: %d)",
+			startupSyncStats.NewDeposits, startupSyncStats.NewERC20Deposits, startupSyncStats.NewBEP20Deposits)
+		logInfo("   💸 New withdrawals found: %d (ERC20: %d, BEP20: %d)",
+			startupSyncStats.NewWithdrawals, startupSyncStats.NewERC20Withdrawals, startupSyncStats.NewBEP20Withdrawals)
+		logInfo("   ⏭️ Skipped (already exists): %d", startupSyncStats.SkippedTransactions)
+		if startupSyncStats.NewDeposits > 0 || startupSyncStats.NewWithdrawals > 0 {
+			logInfo("   🎉 Found %d new transactions from blockchain!",
+				startupSyncStats.NewDeposits+startupSyncStats.NewWithdrawals)
+		}
 	}
 
 	// Start blockchain deposit sync goroutine (every 5 minutes)
