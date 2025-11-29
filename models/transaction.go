@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -46,7 +47,6 @@ type Transaction struct {
 
 // Etherscan Multichain API endpoint
 const etherscanAPIBase = "https://api.etherscan.io/api"
-const bscscanAPIBase = "https://api.bscscan.com/api"
 
 // FetchUSDTTransfers fetches USDT token transfers for a given address and network (ERC20/BEP20)
 func FetchUSDTTransfers(address, network, apiKey string) ([]map[string]interface{}, error) {
@@ -55,34 +55,76 @@ func FetchUSDTTransfers(address, network, apiKey string) ([]map[string]interface
 		apiBase = "https://api.etherscan.io/v2/api"
 		contract = ERC20USDTContract
 		url = fmt.Sprintf("%s?chainid=1&module=account&action=tokentx&contractaddress=%s&address=%s&sort=desc&apikey=%s", apiBase, contract, address, apiKey)
+		log.Printf("[BLOCKCHAIN] 🔵 ERC20 API Request: address=%s, contract=%s", address, contract)
 	} else if network == "BEP20" {
 		apiBase = "https://api.etherscan.io/v2/api"
 		contract = BEP20USDTContract
 		url = fmt.Sprintf("%s?chainid=56&module=account&action=tokentx&contractaddress=%s&address=%s&sort=desc&apikey=%s", apiBase, contract, address, apiKey)
+		log.Printf("[BLOCKCHAIN] 🟡 BEP20 API Request: address=%s, contract=%s", address, contract)
 	} else {
 		return nil, fmt.Errorf("unsupported network: %s", network)
 	}
 
-	resp, err := http.Get(url)
+	log.Printf("[BLOCKCHAIN] 📡 Fetching from: %s (network: %s)", url[:100]+"...", network)
+
+	// Create HTTP client with timeout
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	resp, err := client.Get(url)
 	if err != nil {
-		return nil, err
+		log.Printf("[BLOCKCHAIN] ❌ HTTP Request Error: %v (network: %s, address: %s)", err, network, address)
+		return nil, fmt.Errorf("HTTP request failed: %v", err)
 	}
 	defer resp.Body.Close()
+
+	log.Printf("[BLOCKCHAIN] 📥 HTTP Response Status: %d %s (network: %s)", resp.StatusCode, resp.Status, network)
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		log.Printf("[BLOCKCHAIN] ❌ HTTP Error Response Body: %s", string(bodyBytes))
+		return nil, fmt.Errorf("HTTP error: %d %s", resp.StatusCode, resp.Status)
+	}
+
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		log.Printf("[BLOCKCHAIN] ❌ Read Body Error: %v (network: %s)", err, network)
+		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
+
+	// Log first 500 chars of response for debugging
+	bodyPreview := string(body)
+	if len(bodyPreview) > 500 {
+		bodyPreview = bodyPreview[:500] + "..."
+	}
+	log.Printf("[BLOCKCHAIN] 📄 Response Body Preview: %s", bodyPreview)
+
 	var result struct {
 		Status  string                   `json:"status"`
 		Message string                   `json:"message"`
 		Result  []map[string]interface{} `json:"result"`
 	}
+
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, err
+		log.Printf("[BLOCKCHAIN] ❌ JSON Parse Error: %v (network: %s)", err, network)
+		log.Printf("[BLOCKCHAIN] ❌ Raw Response: %s", string(body))
+		return nil, fmt.Errorf("failed to parse JSON: %v", err)
 	}
+
+	log.Printf("[BLOCKCHAIN] 📊 API Response: status=%s, message=%s, result_count=%d (network: %s)",
+		result.Status, result.Message, len(result.Result), network)
+
+	// Check API response status
 	if result.Status != "1" {
-		return nil, fmt.Errorf("API error: %s", result.Message)
+		log.Printf("[BLOCKCHAIN] ⚠️ API Error Response: status=%s, message=%s (network: %s)",
+			result.Status, result.Message, network)
+		return nil, fmt.Errorf("API error: status=%s, message=%s", result.Status, result.Message)
 	}
+
+	log.Printf("[BLOCKCHAIN] ✅ Successfully fetched %d transactions (network: %s, address: %s)",
+		len(result.Result), network, address)
+
 	return result.Result, nil
 }
 
@@ -109,21 +151,37 @@ func SyncAllUserDepositsWithStats(db *gorm.DB, apiKey string) SyncStats {
 	}
 
 	stats.TotalUsers = len(users)
+	log.Printf("[BLOCKCHAIN] 🔍 Starting sync for %d users", stats.TotalUsers)
 
-	for _, user := range users {
+	for i, user := range users {
+		log.Printf("[BLOCKCHAIN] 👤 Processing user %d/%d: ID=%d, TelegramID=%d",
+			i+1, stats.TotalUsers, user.ID, user.TelegramID)
+
 		// ERC20
 		if user.ERC20Address != "" {
+			log.Printf("[BLOCKCHAIN] 🔵 Checking ERC20 wallet: %s (user_id=%d)", user.ERC20Address, user.ID)
 			txs, err := FetchUSDTTransfers(user.ERC20Address, "ERC20", apiKey)
-			if err == nil {
-				for _, tx := range txs {
+			if err != nil {
+				log.Printf("[BLOCKCHAIN] ❌ ERC20 Fetch Error for user %d: %v", user.ID, err)
+			} else {
+				log.Printf("[BLOCKCHAIN] ✅ ERC20: Found %d transactions for user %d", len(txs), user.ID)
+				for txIndex, tx := range txs {
 					txHash, _ := tx["hash"].(string)
 					amountStr, _ := tx["value"].(string)
+					fromAddr, _ := tx["from"].(string)
+					toAddr, _ := tx["to"].(string)
 					amountFloat := parseUSDTAmount(amountStr)
+
+					log.Printf("[BLOCKCHAIN] 🔍 ERC20 TX %d/%d: hash=%s, from=%s, to=%s, amount=%s (%.6f USDT)",
+						txIndex+1, len(txs), txHash[:10]+"...", fromAddr[:10]+"...", toAddr[:10]+"...", amountStr, amountFloat)
+
 					// Deposit: incoming transfers to this address
-					if to, ok := tx["to"].(string); ok && strings.EqualFold(to, user.ERC20Address) {
+					if strings.EqualFold(toAddr, user.ERC20Address) {
 						var count int64
 						db.Model(&Transaction{}).Where("tx_hash = ? AND network = ?", txHash, "ERC20").Count(&count)
 						if count == 0 {
+							log.Printf("[BLOCKCHAIN] 💰 NEW ERC20 DEPOSIT: user_id=%d, tx=%s, amount=%.6f USDT",
+								user.ID, txHash, amountFloat)
 							t := Transaction{
 								UserID:  user.ID,
 								Type:    "deposit",
@@ -132,23 +190,32 @@ func SyncAllUserDepositsWithStats(db *gorm.DB, apiKey string) SyncStats {
 								TxHash:  txHash,
 								Status:  "confirmed",
 							}
-							db.Create(&t)
-
-							// به‌روزرسانی موجودی کاربر
-							user.ERC20Balance += amountFloat
-							db.Save(&user)
-
-							stats.NewDeposits++
-							stats.NewERC20Deposits++
+							if err := db.Create(&t).Error; err != nil {
+								log.Printf("[BLOCKCHAIN] ❌ Failed to create ERC20 deposit transaction: %v", err)
+							} else {
+								// به‌روزرسانی موجودی کاربر
+								user.ERC20Balance += amountFloat
+								if err := db.Save(&user).Error; err != nil {
+									log.Printf("[BLOCKCHAIN] ❌ Failed to update user balance: %v", err)
+								} else {
+									log.Printf("[BLOCKCHAIN] ✅ Updated user %d ERC20 balance: +%.6f USDT (new: %.6f)",
+										user.ID, amountFloat, user.ERC20Balance)
+								}
+								stats.NewDeposits++
+								stats.NewERC20Deposits++
+							}
 						} else {
+							log.Printf("[BLOCKCHAIN] ⏭️ SKIP ERC20 DEPOSIT (exists): user_id=%d, tx=%s", user.ID, txHash)
 							stats.SkippedTransactions++
 						}
 					}
 					// Withdraw: outgoing transfers from this address
-					if from, ok := tx["from"].(string); ok && strings.EqualFold(from, user.ERC20Address) {
+					if strings.EqualFold(fromAddr, user.ERC20Address) {
 						var count int64
 						db.Model(&Transaction{}).Where("tx_hash = ? AND network = ?", txHash, "ERC20").Count(&count)
 						if count == 0 {
+							log.Printf("[BLOCKCHAIN] 💸 NEW ERC20 WITHDRAWAL: user_id=%d, tx=%s, amount=%.6f USDT",
+								user.ID, txHash, amountFloat)
 							t := Transaction{
 								UserID:  user.ID,
 								Type:    "withdraw",
@@ -157,15 +224,25 @@ func SyncAllUserDepositsWithStats(db *gorm.DB, apiKey string) SyncStats {
 								TxHash:  txHash,
 								Status:  "confirmed",
 							}
-							db.Create(&t)
-
-							// به‌روزرسانی موجودی کاربر
-							user.ERC20Balance -= amountFloat
-							db.Save(&user)
-
-							stats.NewWithdrawals++
-							stats.NewERC20Withdrawals++
+							if err := db.Create(&t).Error; err != nil {
+								log.Printf("[BLOCKCHAIN] ❌ Failed to create ERC20 withdrawal transaction: %v", err)
+							} else {
+								// به‌روزرسانی موجودی کاربر
+								user.ERC20Balance -= amountFloat
+								if user.ERC20Balance < 0 {
+									user.ERC20Balance = 0
+								}
+								if err := db.Save(&user).Error; err != nil {
+									log.Printf("[BLOCKCHAIN] ❌ Failed to update user balance: %v", err)
+								} else {
+									log.Printf("[BLOCKCHAIN] ✅ Updated user %d ERC20 balance: -%.6f USDT (new: %.6f)",
+										user.ID, amountFloat, user.ERC20Balance)
+								}
+								stats.NewWithdrawals++
+								stats.NewERC20Withdrawals++
+							}
 						} else {
+							log.Printf("[BLOCKCHAIN] ⏭️ SKIP ERC20 WITHDRAWAL (exists): user_id=%d, tx=%s", user.ID, txHash)
 							stats.SkippedTransactions++
 						}
 					}
@@ -174,17 +251,29 @@ func SyncAllUserDepositsWithStats(db *gorm.DB, apiKey string) SyncStats {
 		}
 		// BEP20
 		if user.BEP20Address != "" {
+			log.Printf("[BLOCKCHAIN] 🟡 Checking BEP20 wallet: %s (user_id=%d)", user.BEP20Address, user.ID)
 			txs, err := FetchUSDTTransfers(user.BEP20Address, "BEP20", apiKey)
-			if err == nil {
-				for _, tx := range txs {
+			if err != nil {
+				log.Printf("[BLOCKCHAIN] ❌ BEP20 Fetch Error for user %d: %v", user.ID, err)
+			} else {
+				log.Printf("[BLOCKCHAIN] ✅ BEP20: Found %d transactions for user %d", len(txs), user.ID)
+				for txIndex, tx := range txs {
 					txHash, _ := tx["hash"].(string)
 					amountStr, _ := tx["value"].(string)
+					fromAddr, _ := tx["from"].(string)
+					toAddr, _ := tx["to"].(string)
 					amountFloat := parseUSDTAmount(amountStr)
+
+					log.Printf("[BLOCKCHAIN] 🔍 BEP20 TX %d/%d: hash=%s, from=%s, to=%s, amount=%s (%.6f USDT)",
+						txIndex+1, len(txs), txHash[:10]+"...", fromAddr[:10]+"...", toAddr[:10]+"...", amountStr, amountFloat)
+
 					// Deposit: incoming transfers to this address
-					if to, ok := tx["to"].(string); ok && strings.EqualFold(to, user.BEP20Address) {
+					if strings.EqualFold(toAddr, user.BEP20Address) {
 						var count int64
 						db.Model(&Transaction{}).Where("tx_hash = ? AND network = ?", txHash, "BEP20").Count(&count)
 						if count == 0 {
+							log.Printf("[BLOCKCHAIN] 💰 NEW BEP20 DEPOSIT: user_id=%d, tx=%s, amount=%.6f USDT",
+								user.ID, txHash, amountFloat)
 							t := Transaction{
 								UserID:  user.ID,
 								Type:    "deposit",
@@ -193,23 +282,32 @@ func SyncAllUserDepositsWithStats(db *gorm.DB, apiKey string) SyncStats {
 								TxHash:  txHash,
 								Status:  "confirmed",
 							}
-							db.Create(&t)
-
-							// به‌روزرسانی موجودی کاربر
-							user.BEP20Balance += amountFloat
-							db.Save(&user)
-
-							stats.NewDeposits++
-							stats.NewBEP20Deposits++
+							if err := db.Create(&t).Error; err != nil {
+								log.Printf("[BLOCKCHAIN] ❌ Failed to create BEP20 deposit transaction: %v", err)
+							} else {
+								// به‌روزرسانی موجودی کاربر
+								user.BEP20Balance += amountFloat
+								if err := db.Save(&user).Error; err != nil {
+									log.Printf("[BLOCKCHAIN] ❌ Failed to update user balance: %v", err)
+								} else {
+									log.Printf("[BLOCKCHAIN] ✅ Updated user %d BEP20 balance: +%.6f USDT (new: %.6f)",
+										user.ID, amountFloat, user.BEP20Balance)
+								}
+								stats.NewDeposits++
+								stats.NewBEP20Deposits++
+							}
 						} else {
+							log.Printf("[BLOCKCHAIN] ⏭️ SKIP BEP20 DEPOSIT (exists): user_id=%d, tx=%s", user.ID, txHash)
 							stats.SkippedTransactions++
 						}
 					}
 					// Withdraw: outgoing transfers from this address
-					if from, ok := tx["from"].(string); ok && strings.EqualFold(from, user.BEP20Address) {
+					if strings.EqualFold(fromAddr, user.BEP20Address) {
 						var count int64
 						db.Model(&Transaction{}).Where("tx_hash = ? AND network = ?", txHash, "BEP20").Count(&count)
 						if count == 0 {
+							log.Printf("[BLOCKCHAIN] 💸 NEW BEP20 WITHDRAWAL: user_id=%d, tx=%s, amount=%.6f USDT",
+								user.ID, txHash, amountFloat)
 							t := Transaction{
 								UserID:  user.ID,
 								Type:    "withdraw",
@@ -218,22 +316,39 @@ func SyncAllUserDepositsWithStats(db *gorm.DB, apiKey string) SyncStats {
 								TxHash:  txHash,
 								Status:  "confirmed",
 							}
-							db.Create(&t)
-
-							// به‌روزرسانی موجودی کاربر
-							user.BEP20Balance -= amountFloat
-							db.Save(&user)
-
-							stats.NewWithdrawals++
-							stats.NewBEP20Withdrawals++
+							if err := db.Create(&t).Error; err != nil {
+								log.Printf("[BLOCKCHAIN] ❌ Failed to create BEP20 withdrawal transaction: %v", err)
+							} else {
+								// به‌روزرسانی موجودی کاربر
+								user.BEP20Balance -= amountFloat
+								if user.BEP20Balance < 0 {
+									user.BEP20Balance = 0
+								}
+								if err := db.Save(&user).Error; err != nil {
+									log.Printf("[BLOCKCHAIN] ❌ Failed to update user balance: %v", err)
+								} else {
+									log.Printf("[BLOCKCHAIN] ✅ Updated user %d BEP20 balance: -%.6f USDT (new: %.6f)",
+										user.ID, amountFloat, user.BEP20Balance)
+								}
+								stats.NewWithdrawals++
+								stats.NewBEP20Withdrawals++
+							}
 						} else {
+							log.Printf("[BLOCKCHAIN] ⏭️ SKIP BEP20 WITHDRAWAL (exists): user_id=%d, tx=%s", user.ID, txHash)
 							stats.SkippedTransactions++
 						}
 					}
 				}
 			}
+		} else {
+			log.Printf("[BLOCKCHAIN] ⚠️ User %d has no BEP20 address", user.ID)
 		}
 	}
+
+	log.Printf("[BLOCKCHAIN] ✅ Sync completed: %d users, %d new deposits (ERC20: %d, BEP20: %d), %d new withdrawals (ERC20: %d, BEP20: %d), %d skipped",
+		stats.TotalUsers, stats.NewDeposits, stats.NewERC20Deposits, stats.NewBEP20Deposits,
+		stats.NewWithdrawals, stats.NewERC20Withdrawals, stats.NewBEP20Withdrawals, stats.SkippedTransactions)
+
 	return stats
 }
 
