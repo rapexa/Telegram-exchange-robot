@@ -613,6 +613,23 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB, cfg *config.Config) {
 						riskEmoji = "🔴"
 					}
 
+					// محاسبه حداقل سود و حداکثر ضرر به درستی برای همه حالات
+					var minProfit, maxLoss float64
+
+					// حالت 1: هر دو مثبت (مثلاً +1 تا +1.2) - فقط سود
+					// حالت 2: minPercent منفی، maxPercent مثبت (مثلاً -5 تا +15) - سود و ضرر
+					// حالت 3: هر دو منفی (مثلاً -10 تا -5) - فقط ضرر
+
+					if minPercent >= 0 {
+						// اگر minPercent مثبت باشد، حداقل سود = minPercent
+						minProfit = minPercent
+						maxLoss = 0.0 // هیچ ضرری نداریم
+					} else {
+						// اگر minPercent منفی باشد، می‌توانیم ضرر کنیم
+						minProfit = 0.0       // ممکن است ضرر کنیم، پس حداقل سود 0 است
+						maxLoss = -minPercent // حداکثر ضرر = قدر مطلق minPercent
+					}
+
 					msg := fmt.Sprintf("%s *رنج معامله %d تنظیم شد*\n\n"+
 						"📊 *بازه درصد:* %.1f%% تا %.1f%%\n"+
 						"⚠️ *سطح ریسک:* %s\n"+
@@ -621,7 +638,7 @@ func StartBot(bot *tgbotapi.BotAPI, db *gorm.DB, cfg *config.Config) {
 						"• حداکثر ضرر: %.1f%%\n\n"+
 						"✅ تنظیمات با موفقیت ذخیره شد!",
 						riskEmoji, tradeIndex, minPercent, maxPercent, riskLevel,
-						maxPercent, -minPercent)
+						minProfit, maxLoss)
 
 					message := tgbotapi.NewMessage(update.Message.Chat.ID, msg)
 					message.ParseMode = "Markdown"
